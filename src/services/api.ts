@@ -35,3 +35,32 @@ export const fetchPlayerSummary = async (id: number): Promise<any> => {
         throw error;
     }
 };
+
+export const fetchFixtures = async (): Promise<any[]> => {
+    try {
+        const response = await fetch('/api/fixtures/');
+        if (!response.ok) {
+            throw new Error(`Error fetching fixtures: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch fixtures:", error);
+        throw error;
+    }
+};
+
+export const fetchLiveEvent = async (eventId: number): Promise<any> => {
+    try {
+        const response = await fetch(`/api/event/${eventId}/live/`);
+        if (!response.ok) {
+            throw new Error(`Error fetching live event data: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch live event data:", error);
+        throw error;
+    }
+};
+

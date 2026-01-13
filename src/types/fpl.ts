@@ -6,6 +6,23 @@ export interface ElementType {
     singular_name_short: string;
 }
 
+export interface Fixture {
+    id: number;
+    code: number;
+    team_h: number;
+    team_h_score: number | null;
+    team_a: number;
+    team_a_score: number | null;
+    event: number;
+    finished: boolean;
+    minutes: number;
+    provisional_start_time: boolean;
+    kickoff_time: string;
+    event_name: string;
+    is_home: boolean;
+    difficulty: number;
+}
+
 export interface Team {
     id: number;
     code: number;
@@ -13,6 +30,12 @@ export interface Team {
     short_name: string;
     strength: number;
     position: number;
+    played: number;
+    win: number;
+    loss: number;
+    draw: number;
+    points: number;
+    form: string | null;
     strength_overall_home: number;
     strength_overall_away: number;
     strength_attack_home: number;

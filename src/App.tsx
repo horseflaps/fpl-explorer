@@ -4,15 +4,18 @@ import type { FPLResponse } from './types/fpl';
 import HomeView from './components/HomeView';
 import PlayersView from './components/PlayersView';
 import TeamsView from './components/TeamsView';
-import { Loader2, AlertTriangle, ArrowLeft } from 'lucide-react';
-
-type View = 'home' | 'players' | 'teams';
+import FixturesView from './components/FixturesView';
+import GameweekLiveView from './components/GameweekLiveView';
+import StandingsView from './components/StandingsView';
+import Layout, { type View } from './components/Layout';
+import { Loader2, AlertTriangle } from 'lucide-react';
 
 function App() {
   const [data, setData] = useState<FPLResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<View>('home');
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -58,56 +61,35 @@ function App() {
     );
   }
 
+  const currentGameweek = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
+
   return (
-    <div className="min-h-screen bg-[url('https://resources.premierleague.com/premierleague/photo/2023/12/22/a894560a-0490-449e-8798-7c050a490ca9/pl-background.png')] bg-fixed bg-cover bg-center bg-no-repeat bg-slate-950 attachment-fixed">
-      {/* Overlay to darken background */}
-      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-0 pointer-events-none" />
-
-      <div className="relative z-10 container mx-auto px-4 py-8">
-        {/* Header */}
-        <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div className="flex items-center gap-4">
-             {currentView !== 'home' && (
-                  <button 
-                    onClick={() => setCurrentView('home')}
-                    className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full text-white transition-colors"
-                  >
-                      <ArrowLeft size={24} />
-                  </button>
-             )}
-            <div>
-                <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fpl-green to-fpl-blue mb-2">
-                FPL Explorer
-                </h1>
-                <p className="text-gray-400 max-w-lg">
-                    {currentView === 'home' ? 'Manage your fantasy experience.' :
-                     currentView === 'players' ? 'Browse and analyze player statistics.' :
-                     'Compare team performance and stats.'}
-                </p>
-            </div>
-          </div>
-          <div className="text-right hidden md:block">
-            <div className="text-sm text-gray-500">Gameweek</div>
-            <div className="text-3xl font-bold text-white">
-              {data.events.find(e => e.is_current)?.name || 'Pre-Season'}
-            </div>
-          </div>
-        </header>
-
-        {/* Content Area */}
-        <main className="min-h-[60vh]">
-            {currentView === 'home' && (
-                <HomeView onNavigate={setCurrentView} />
-            )}
-            {currentView === 'players' && (
-                <PlayersView data={data} />
-            )}
-            {currentView === 'teams' && (
-                <TeamsView data={data} />
-            )}
-        </main>
-      </div>
-    </div>
+    <Layout
+      currentView={currentView}
+      onNavigate={setCurrentView}
+      currentGameweek={currentGameweek}
+    >
+      {currentView === 'home' && <HomeView onNavigate={(view) => setCurrentView(view as View)} />}
+      {currentView === 'players' && <PlayersView data={data} />}
+      {currentView === 'teams' && (
+        <TeamsView
+          data={data}
+          selectedTeamId={selectedTeamId}
+          onSelectTeam={setSelectedTeamId}
+        />
+      )}
+      {currentView === 'fixtures' && <FixturesView data={data} />}
+      {currentView === 'gameweek' && <GameweekLiveView data={data} />}
+      {currentView === 'standings' && (
+        <StandingsView
+          data={data}
+          onTeamClick={(teamId) => {
+            setSelectedTeamId(teamId);
+            setCurrentView('teams');
+          }}
+        />
+      )}
+    </Layout>
   );
 }
 

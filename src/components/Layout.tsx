@@ -1,0 +1,86 @@
+import React from 'react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy } from 'lucide-react';
+import type { Event } from '../types/fpl';
+
+export type View = 'home' | 'players' | 'teams' | 'fixtures' | 'gameweek' | 'standings';
+
+interface LayoutProps {
+    children: React.ReactNode;
+    currentView: View;
+    onNavigate: (view: View) => void;
+    currentGameweek?: Event;
+}
+
+const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate, currentGameweek }) => {
+    const navItems = [
+        { id: 'home', label: 'Home', icon: LayoutDashboard },
+        { id: 'players', label: 'Players', icon: Users },
+        { id: 'teams', label: 'Teams', icon: Shield },
+        { id: 'fixtures', label: 'Fixtures', icon: Calendar },
+        { id: 'gameweek', label: 'Gameweek', icon: Activity },
+        { id: 'standings', label: 'Standings', icon: Trophy },
+    ] as const;
+
+    return (
+        <div className="min-h-screen bg-[url('https://resources.premierleague.com/premierleague/photo/2023/12/22/a894560a-0490-449e-8798-7c050a490ca9/pl-background.png')] bg-fixed bg-cover bg-center bg-no-repeat bg-slate-950 attachment-fixed text-white font-sans">
+            {/* Overlay */}
+            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-0 pointer-events-none" />
+
+            <div className="relative z-10 flex min-h-screen">
+                {/* Sidebar */}
+                <aside className="hidden md:flex flex-col w-64 border-r border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 h-screen overflow-y-auto">
+                    <div className="p-6 border-b border-slate-800/50">
+                        <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fpl-green to-fpl-blue">
+                            FPL Explorer
+                        </h1>
+                        <p className="text-xs text-gray-400 mt-1">Fantasy Premier League Data</p>
+                    </div>
+
+                    <nav className="flex-1 p-4 space-y-2">
+                        {navItems.map((item) => (
+                            <button
+                                key={item.id}
+                                onClick={() => onNavigate(item.id)}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${currentView === item.id
+                                    ? 'bg-fpl-green text-slate-900 shadow-lg shadow-fpl-green/20 font-bold'
+                                    : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                    }`}
+                            >
+                                <item.icon size={20} className={`${currentView === item.id ? 'text-slate-900' : 'group-hover:text-fpl-green transition-colors'}`} />
+                                <span className="font-semibold">{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+
+                    <div className="p-4 border-t border-slate-800/50 bg-slate-900/30">
+                        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-bold">Current Gameweek</div>
+                        <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
+                            <div className="text-lg font-bold text-white mb-1">
+                                {currentGameweek?.name || 'Pre-Season'}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                                {currentGameweek?.deadline_time ? new Date(currentGameweek.deadline_time).toLocaleDateString() : 'Date TBD'}
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                {/* Mobile Header (visible only on small screens) */}
+                {/* For simplicity we will stick to basic rendering first, can enhance mobile later */}
+
+                {/* Main Content */}
+                <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Page Header placeholder if needed, mostly handled by views */}
+                        <div className="mb-8 md:hidden">
+                            <h1 className="text-3xl font-black text-white">FPL Explorer</h1>
+                        </div>
+                        {children}
+                    </div>
+                </main>
+            </div>
+        </div>
+    );
+};
+
+export default Layout;
