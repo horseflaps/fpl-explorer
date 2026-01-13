@@ -1,0 +1,124 @@
+export interface ElementType {
+    id: number;
+    plural_name: string;
+    plural_name_short: string;
+    singular_name: string;
+    singular_name_short: string;
+}
+
+export interface Team {
+    id: number;
+    code: number;
+    name: string;
+    short_name: string;
+    strength: number;
+    position: number;
+    strength_overall_home: number;
+    strength_overall_away: number;
+    strength_attack_home: number;
+    strength_attack_away: number;
+    strength_defence_home: number;
+    strength_defence_away: number;
+}
+
+export interface Player {
+    id: number;
+    code: number;
+    first_name: string;
+
+    second_name: string;
+    web_name: string;
+    team: number;
+    element_type: number;
+    selected_by_percent: string;
+    now_cost: number;
+    total_points: number;
+    event_points: number;
+    points_per_game: string;
+    form: string;
+    ep_next: string;
+    ep_this: string;
+    minutes: number;
+    goals_scored: number;
+    assists: number;
+    clean_sheets: number;
+    goals_conceded: number;
+    own_goals: number;
+    penalties_saved: number;
+    penalties_missed: number;
+    yellow_cards: number;
+    red_cards: number;
+    saves: number;
+    bonus: number;
+    bps: number;
+    influence: string;
+    creativity: string;
+    threat: string;
+    ict_index: string;
+    expected_goals: string;
+    expected_assists: string;
+    photo: string;
+    news: string;
+    status: string;
+}
+
+export interface Event {
+    id: number;
+    name: string;
+    deadline_time: string;
+    is_current: boolean;
+    is_next: boolean;
+    is_previous: boolean;
+    average_entry_score: number;
+    highest_score: number;
+}
+
+export interface FPLResponse {
+    events: Event[];
+    game_settings: any;
+    phases: any[];
+    teams: Team[];
+    total_players: number;
+    elements: Player[]; // Players are called 'elements' in the API
+    element_types: ElementType[];
+}
+
+export interface History {
+    element: number;
+    fixture: number;
+    opponent_team: number;
+    total_points: number;
+    was_home: boolean;
+    kickoff_time: string;
+    team_h_score: number;
+    team_a_score: number;
+    round: number;
+    minutes: number;
+    goals_scored: number;
+    assists: number;
+    clean_sheets: number;
+    goals_conceded: number;
+    own_goals: number;
+    penalties_saved: number;
+    penalties_missed: number;
+    yellow_cards: number;
+    red_cards: number;
+    saves: number;
+    bonus: number;
+    bps: number;
+    influence: string;
+    creativity: string;
+    threat: string;
+    ict_index: string;
+    value: number;
+    transfers_balance: number;
+    selected: number;
+    transfers_in: number;
+    transfers_out: number;
+}
+
+export interface PlayerSummary {
+    fixtures: any[];
+    history: History[];
+    history_past: any[];
+}
