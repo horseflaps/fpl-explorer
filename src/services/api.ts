@@ -1,4 +1,4 @@
-import type { FPLResponse } from '../types/fpl';
+import type { FPLResponse, EntryPicksResponse, LeagueStandingsResponse } from '../types/fpl';
 
 export const fetchFPLData = async (): Promise<FPLResponse> => {
     try {
@@ -60,6 +60,34 @@ export const fetchLiveEvent = async (eventId: number): Promise<any> => {
         return data;
     } catch (error) {
         console.error("Failed to fetch live event data:", error);
+        throw error;
+    }
+};
+
+export const fetchEntryPicks = async (entryId: number, eventId: number): Promise<EntryPicksResponse> => {
+    try {
+        const response = await fetch(`/api/entry/${entryId}/event/${eventId}/picks/`);
+        if (!response.ok) {
+            throw new Error(`Error fetching entry picks: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch entry picks:", error);
+        throw error;
+    }
+};
+
+export const fetchLeagueStandings = async (leagueId: number): Promise<LeagueStandingsResponse> => {
+    try {
+        const response = await fetch(`/api/leagues-classic/${leagueId}/standings/`);
+        if (!response.ok) {
+            throw new Error(`Error fetching league standings: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch league standings:", error);
         throw error;
     }
 };

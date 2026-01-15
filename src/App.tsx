@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchFPLData } from './services/api';
 import type { FPLResponse } from './types/fpl';
 import HomeView from './components/HomeView';
@@ -7,15 +8,14 @@ import TeamsView from './components/TeamsView';
 import FixturesView from './components/FixturesView';
 import GameweekLiveView from './components/GameweekLiveView';
 import StandingsView from './components/StandingsView';
-import Layout, { type View } from './components/Layout';
+import PitchView from './components/PitchView';
+import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 function App() {
   const [data, setData] = useState<FPLResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<View>('home');
-  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -64,32 +64,20 @@ function App() {
   const currentGameweek = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
 
   return (
-    <Layout
-      currentView={currentView}
-      onNavigate={setCurrentView}
-      currentGameweek={currentGameweek}
-    >
-      {currentView === 'home' && <HomeView onNavigate={(view) => setCurrentView(view as View)} />}
-      {currentView === 'players' && <PlayersView data={data} />}
-      {currentView === 'teams' && (
-        <TeamsView
-          data={data}
-          selectedTeamId={selectedTeamId}
-          onSelectTeam={setSelectedTeamId}
-        />
-      )}
-      {currentView === 'fixtures' && <FixturesView data={data} />}
-      {currentView === 'gameweek' && <GameweekLiveView data={data} />}
-      {currentView === 'standings' && (
-        <StandingsView
-          data={data}
-          onTeamClick={(teamId) => {
-            setSelectedTeamId(teamId);
-            setCurrentView('teams');
-          }}
-        />
-      )}
-    </Layout>
+    <BrowserRouter>
+      <Layout currentGameweek={currentGameweek}>
+        <Routes>
+          <Route path="/" element={<HomeView />} />
+          <Route path="/players" element={<PlayersView data={data} />} />
+          <Route path="/teams" element={<TeamsView data={data} />} />
+          <Route path="/fixtures" element={<FixturesView data={data} />} />
+          <Route path="/gameweek" element={<GameweekLiveView data={data} />} />
+          <Route path="/standings" element={<StandingsView data={data} />} />
+          <Route path="/my-team" element={<PitchView data={data} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </BrowserRouter>
   );
 }
 

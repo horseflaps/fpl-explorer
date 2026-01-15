@@ -145,3 +145,46 @@ export interface PlayerSummary {
     history: History[];
     history_past: any[];
 }
+
+export interface LeagueEntry {
+    id: number;
+    event_total: number;
+    player_name: string;
+    rank: number;
+    last_rank: number;
+    rank_sort: number;
+    total: number;
+    entry: number;
+    entry_name: string;
+}
+
+export interface LeagueStandingsResponse {
+    league: {
+        id: number;
+        name: string;
+    };
+    standings: {
+        has_next: boolean;
+        page: number;
+        results: LeagueEntry[];
+    };
+}
+
+export interface Pick {
+    element: number;
+    position: number;
+    multiplier: number;
+    is_captain: boolean;
+    is_vice_captain: boolean;
+}
+
+export interface EntryPicksResponse {
+    active_chip: string | null;
+    automatic_subs: any[];
+    entry_history: {
+        event: number;
+        points: number;
+        total_points: number;
+    };
+    picks: Pick[];
+}

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Trophy, Loader2 } from 'lucide-react';
 import type { FPLResponse, Team, Fixture } from '../types/fpl';
 import { fetchFixtures } from '../services/api';
 
 interface StandingsViewProps {
     data: FPLResponse;
-    onTeamClick: (teamId: number) => void;
 }
 
 interface TeamStats extends Team {
@@ -20,7 +20,8 @@ interface TeamStats extends Team {
     recent_points: number[]; // Track points from recent matches
 }
 
-const StandingsView: React.FC<StandingsViewProps> = ({ data, onTeamClick }) => {
+const StandingsView: React.FC<StandingsViewProps> = ({ data }) => {
+    const navigate = useNavigate();
     const [standings, setStandings] = useState<TeamStats[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -187,9 +188,9 @@ const StandingsView: React.FC<StandingsViewProps> = ({ data, onTeamClick }) => {
                                 <tr key={team.id} className="hover:bg-slate-800/50 transition-colors group">
                                     <td className="p-4 text-center font-bold">
                                         <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto text-sm ${team.position === 1 ? 'bg-yellow-500 text-black' :
-                                                team.position <= 4 ? 'bg-slate-400 text-slate-900' :
-                                                    team.position === 5 ? 'bg-orange-500 text-white' :
-                                                        team.position >= 18 ? 'bg-red-600 text-white' : 'text-gray-400'
+                                            team.position <= 4 ? 'bg-slate-400 text-slate-900' :
+                                                team.position === 5 ? 'bg-orange-500 text-white' :
+                                                    team.position >= 18 ? 'bg-red-600 text-white' : 'text-gray-400'
                                             }`}>
                                             {team.position}
                                         </div>
@@ -197,7 +198,7 @@ const StandingsView: React.FC<StandingsViewProps> = ({ data, onTeamClick }) => {
                                     <td className="p-4">
                                         <div className="flex items-center gap-3">
                                             <button
-                                                onClick={() => onTeamClick(team.id)}
+                                                onClick={() => navigate(`/teams?id=${team.id}`)}
                                                 className="font-bold text-white text-lg hover:text-fpl-green hover:underline text-left"
                                             >
                                                 {team.name}

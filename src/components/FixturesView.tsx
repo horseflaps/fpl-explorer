@@ -11,6 +11,7 @@ const FixturesView: React.FC<FixturesViewProps> = ({ data }) => {
     const [fixtures, setFixtures] = useState<Fixture[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedGameweek, setSelectedGameweek] = useState<number>(1);
+    const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
 
     useEffect(() => {
         const loadFixtures = async () => {
@@ -34,8 +35,6 @@ const FixturesView: React.FC<FixturesViewProps> = ({ data }) => {
 
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
 
-    const filteredFixtures = fixtures.filter(f => f.event === selectedGameweek);
-
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -44,38 +43,78 @@ const FixturesView: React.FC<FixturesViewProps> = ({ data }) => {
         );
     }
 
+    const currentGameweekId = data.events.find(e => e.is_current)?.id || data.events.find(e => e.is_next)?.id || 1;
+
+    // Filter Logic
+    const filteredFixtures = selectedTeamId
+        ? fixtures.filter(f => !f.finished && (f.team_h === selectedTeamId || f.team_a === selectedTeamId))
+        : fixtures.filter(f => f.event === selectedGameweek);
+
     return (
         <div className="space-y-6 animate-fadeIn">
-            <div className="flex items-center justify-between bg-slate-800/50 p-4 rounded-xl backdrop-blur-sm border border-slate-700">
-                <div className="flex items-center gap-4">
+            <div className="flex flex-col md:flex-row items-center justify-between bg-slate-800/50 p-4 rounded-xl backdrop-blur-sm border border-slate-700 gap-4">
+                <div className="flex items-center gap-4 w-full md:w-auto">
                     <div className="p-3 bg-fpl-blue/20 rounded-lg">
                         <Calendar className="w-6 h-6 text-fpl-blue" />
                     </div>
                     <div>
                         <h2 className="text-xl font-bold text-white">Fixtures</h2>
-                        <p className="text-gray-400 text-sm">Gameweek {selectedGameweek}</p>
+                        <p className="text-gray-400 text-sm">
+                            {selectedTeamId
+                                ? `All Upcoming Matches`
+                                : `Gameweek ${selectedGameweek}`
+                            }
+                        </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-900 rounded-lg p-1">
-                    <button
-                        onClick={() => setSelectedGameweek(prev => Math.max(1, prev - 1))}
-                        className="p-2 hover:bg-slate-700 rounded-md transition-colors disabled:opacity-50"
-                        disabled={selectedGameweek <= 1}
-                    >
-                        <ChevronLeft size={20} className="text-gray-400" />
-                    </button>
-                    <span className="w-24 text-center font-bold text-white">GW {selectedGameweek}</span>
-                    <button
-                        onClick={() => setSelectedGameweek(prev => Math.max(1, prev + 1))}
-                        className="p-2 hover:bg-slate-700 rounded-md transition-colors"
-                    >
-                        <ChevronRight size={20} className="text-gray-400" />
-                    </button>
+                <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                    {/* Team Filter */}
+                    <div className="w-full sm:w-64">
+                        <select
+                            value={selectedTeamId || ''}
+                            onChange={(e) => setSelectedTeamId(e.target.value ? Number(e.target.value) : null)}
+                            className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-fpl-blue cursor-pointer"
+                        >
+                            <option value="">Filter by Team (All)</option>
+                            {data.teams.map((team) => (
+                                <option key={team.id} value={team.id}>
+                                    {team.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Gameweek Controls (Hidden when team filter is active) */}
+                    {!selectedTeamId && (
+                        <div className="flex items-center gap-2 bg-slate-900 rounded-lg p-1 w-full sm:w-auto justify-center">
+                            <button
+                                onClick={() => setSelectedGameweek(currentGameweekId)}
+                                className={`px-3 py-2 text-xs font-bold hover:bg-slate-700 rounded-md transition-colors mr-1 ${selectedGameweek === currentGameweekId ? 'text-fpl-green' : 'text-gray-400'}`}
+                            >
+                                Current
+                            </button>
+                            <div className="w-px h-6 bg-slate-800 mx-1"></div>
+                            <button
+                                onClick={() => setSelectedGameweek(prev => Math.max(1, prev - 1))}
+                                className="p-2 hover:bg-slate-700 rounded-md transition-colors disabled:opacity-50"
+                                disabled={selectedGameweek <= 1}
+                            >
+                                <ChevronLeft size={20} className="text-gray-400" />
+                            </button>
+                            <span className="w-24 text-center font-bold text-white">GW {selectedGameweek}</span>
+                            <button
+                                onClick={() => setSelectedGameweek(prev => Math.max(1, prev + 1))}
+                                className="p-2 hover:bg-slate-700 rounded-md transition-colors"
+                            >
+                                <ChevronRight size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl mx-auto">
                 {filteredFixtures.map((fixture) => {
                     const homeTeam = getTeam(fixture.team_h);
                     const awayTeam = getTeam(fixture.team_a);
@@ -90,9 +129,15 @@ const FixturesView: React.FC<FixturesViewProps> = ({ data }) => {
 
                             <div className="flex items-center justify-between">
                                 <div className="flex flex-col items-center flex-1">
-                                    <div className="w-12 h-12 mb-2 bg-slate-700 rounded-full flex items-center justify-center font-bold text-lg">
-                                        {/* Placeholder for team logo or just short name if no logo */}
-                                        {homeTeam?.short_name}
+                                    <div className="w-12 h-12 mb-2 bg-white/5 rounded-full flex items-center justify-center p-2">
+                                        <img
+                                            src={`https://resources.premierleague.com/premierleague/badges/t${homeTeam?.code}.png`}
+                                            alt={homeTeam?.name}
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                        />
                                     </div>
                                     <span className="text-sm font-bold text-white text-center">{homeTeam?.name}</span>
                                 </div>
@@ -110,8 +155,15 @@ const FixturesView: React.FC<FixturesViewProps> = ({ data }) => {
                                 </div>
 
                                 <div className="flex flex-col items-center flex-1">
-                                    <div className="w-12 h-12 mb-2 bg-slate-700 rounded-full flex items-center justify-center font-bold text-lg">
-                                        {awayTeam?.short_name}
+                                    <div className="w-12 h-12 mb-2 bg-white/5 rounded-full flex items-center justify-center p-2">
+                                        <img
+                                            src={`https://resources.premierleague.com/premierleague/badges/t${awayTeam?.code}.png`}
+                                            alt={awayTeam?.name}
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                        />
                                     </div>
                                     <span className="text-sm font-bold text-white text-center">{awayTeam?.name}</span>
                                 </div>

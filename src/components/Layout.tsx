@@ -1,24 +1,22 @@
 import React from 'react';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt } from 'lucide-react';
 import type { Event } from '../types/fpl';
-
-export type View = 'home' | 'players' | 'teams' | 'fixtures' | 'gameweek' | 'standings';
 
 interface LayoutProps {
     children: React.ReactNode;
-    currentView: View;
-    onNavigate: (view: View) => void;
     currentGameweek?: Event;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate, currentGameweek }) => {
+const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const navItems = [
-        { id: 'home', label: 'Home', icon: LayoutDashboard },
-        { id: 'players', label: 'Players', icon: Users },
-        { id: 'teams', label: 'Teams', icon: Shield },
-        { id: 'fixtures', label: 'Fixtures', icon: Calendar },
-        { id: 'gameweek', label: 'Gameweek', icon: Activity },
-        { id: 'standings', label: 'Standings', icon: Trophy },
+        { path: '/', label: 'Home', icon: LayoutDashboard },
+        { path: '/my-team', label: 'My Team', icon: Shirt },
+        { path: '/players', label: 'Players', icon: Users },
+        { path: '/teams', label: 'Teams', icon: Shield },
+        { path: '/fixtures', label: 'Fixtures', icon: Calendar },
+        { path: '/gameweek', label: 'Gameweek', icon: Activity },
+        { path: '/standings', label: 'Standings', icon: Trophy },
     ] as const;
 
     return (
@@ -38,17 +36,21 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate, curr
 
                     <nav className="flex-1 p-4 space-y-2">
                         {navItems.map((item) => (
-                            <button
-                                key={item.id}
-                                onClick={() => onNavigate(item.id)}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${currentView === item.id
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                className={({ isActive }) => `w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${isActive
                                     ? 'bg-fpl-green text-slate-900 shadow-lg shadow-fpl-green/20 font-bold'
                                     : 'text-gray-400 hover:text-white hover:bg-slate-800'
                                     }`}
                             >
-                                <item.icon size={20} className={`${currentView === item.id ? 'text-slate-900' : 'group-hover:text-fpl-green transition-colors'}`} />
-                                <span className="font-semibold">{item.label}</span>
-                            </button>
+                                {({ isActive }) => (
+                                    <>
+                                        <item.icon size={20} className={`${isActive ? 'text-slate-900' : 'group-hover:text-fpl-green transition-colors'}`} />
+                                        <span className="font-semibold">{item.label}</span>
+                                    </>
+                                )}
+                            </NavLink>
                         ))}
                     </nav>
 

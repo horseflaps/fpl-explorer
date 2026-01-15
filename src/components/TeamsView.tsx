@@ -1,17 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { FPLResponse, Fixture } from '../types/fpl';
 import { Shield, Calendar, Users, Activity, Loader2 } from 'lucide-react';
 import { fetchFixtures } from '../services/api';
 
 interface TeamsViewProps {
     data: FPLResponse;
-    selectedTeamId: number | null;
-    onSelectTeam: (id: number | null) => void;
 }
 
-const TeamsView: React.FC<TeamsViewProps> = ({ data, selectedTeamId, onSelectTeam }) => {
+const TeamsView: React.FC<TeamsViewProps> = ({ data }) => {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const selectedTeamId = searchParams.get('id') ? Number(searchParams.get('id')) : null;
+
     const [fixtures, setFixtures] = useState<Fixture[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const onSelectTeam = (id: number | null) => {
+        if (id) {
+            setSearchParams({ id: id.toString() });
+        } else {
+            setSearchParams({});
+        }
+    };
 
     useEffect(() => {
         const loadFixtures = async () => {
