@@ -20,6 +20,10 @@ export const getPlayerImageUrl = (code: number) => {
     return `https://resources.premierleague.com/premierleague/photos/players/110x140/p${code}.png`;
 };
 
+export const getTeamKitUrl = (code: number) => {
+    return `https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${code}-66.png`;
+};
+
 export const fallbackPlayerImage = "https://resources.premierleague.com/premierleague/photos/players/110x140/Photo-Missing.png";
 
 export const fetchPlayerSummary = async (id: number): Promise<any> => {

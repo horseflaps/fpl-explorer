@@ -185,6 +185,40 @@ export interface EntryPicksResponse {
         event: number;
         points: number;
         total_points: number;
+        rank: number;
+        rank_sort: number;
+        overall_rank: number;
+        event_transfers: number;
+        event_transfers_cost: number;
+        value: number;
     };
     picks: Pick[];
+}
+
+export interface LiveStats {
+    minutes: number;
+    goals_scored: number;
+    assists: number;
+    clean_sheets: number;
+    goals_conceded: number;
+    own_goals: number;
+    penalties_saved: number;
+    penalties_missed: number;
+    yellow_cards: number;
+    red_cards: number;
+    saves: number;
+    bonus: number;
+    bps: number;
+    total_points: number;
+    in_dreamteam: boolean;
+}
+
+export interface LiveElement {
+    id: number;
+    stats: LiveStats;
+    explain: any[];
+}
+
+export interface LiveEventResponse {
+    elements: LiveElement[];
 }
