@@ -5,11 +5,11 @@
             "destination": "/api/fpl-proxy?path=health"
         },
         {
-            "source": "/api/:match*",
-            "destination": "/api/fpl-proxy?path=:match*"
+            "source": "/api/(.*)",
+            "destination": "/api/fpl-proxy?path=$1"
         },
         {
-            "source": "/((?!api/.*).*)",
+            "source": "/((?!api/).*)",
             "destination": "/index.html"
         }
     ]

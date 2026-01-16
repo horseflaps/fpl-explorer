@@ -12,6 +12,7 @@ export default async function handler(req, res) {
     }
 
     // 2. Path Normalization
+    console.log(`[Proxy] Incoming Path Index: ${JSON.stringify(path)}`);
     // Handle both string (from rewrite) and array (from native routing if applicable)
     const pathString = Array.isArray(path) ? path.join('/') : path;
 
@@ -21,6 +22,7 @@ export default async function handler(req, res) {
     // 3. Construct Target URL
     // FPL API requires trailing slash!
     const targetUrl = `https://fantasy.premierleague.com/api/${cleanPath}/`;
+    console.log(`[Proxy] Fetching: ${targetUrl}`);
 
     try {
         const response = await fetch(targetUrl, {
