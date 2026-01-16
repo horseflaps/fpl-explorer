@@ -73,9 +73,15 @@ export const generateGeminiPrompt = (
 };
 
 export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1000): Promise<string> => {
-    // We now use a SECURE proxy endpoint on Vercel
-    // The key is injected server-side to hide it from the browser
-    const url = `/api/wolf-analysis`;
+    // 1. Check for Local Development Key
+    const localKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+    // If we have a local key, call Google directly (useful for npm run dev)
+    // Otherwise, use the secure production proxy
+    const isLocal = !!localKey;
+    const url = isLocal
+        ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${localKey}`
+        : `/api/wolf-analysis`;
 
     try {
         const response = await fetch(url, {
@@ -83,7 +89,9 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ prompt })
+            body: JSON.stringify(isLocal ? {
+                contents: [{ parts: [{ text: prompt }] }]
+            } : { prompt })
         });
 
         if (!response.ok) {
@@ -101,6 +109,11 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
         }
 
         const data = await response.json();
+
+        // Handle both direct Google response (local) and Proxy response (prod)
+        if (isLocal) {
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis generated.";
+        }
         return data.text || "No analysis generated.";
     } catch (error: any) {
         console.error("Fetch Error:", error);
