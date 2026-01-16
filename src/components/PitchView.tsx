@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, Lightbulb, X, Activity, Sparkles } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory } from '../services/api';
 import { analyzeTeam } from '../services/analysis';
@@ -509,13 +509,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             >
                                 List View
                             </button>
-                            <button
-                                onClick={handleAnalyze}
-                                className="px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all bg-[#00ff87] text-[#37003c] hover:bg-[#00ff87]/80 flex items-center gap-2"
-                            >
-                                <Lightbulb size={14} />
-                                Analyse
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -574,6 +567,40 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         Transfers <span className="text-[8px]">→</span>
                     </span>
                 </div>
+            </div>
+
+            {/* AI Diagnosis CTA - Prominent Headline Feature */}
+            <div className="max-w-4xl mx-auto px-4 md:px-0 pt-4">
+                <button
+                    onClick={handleAnalyze}
+                    className="w-full relative group overflow-hidden rounded-2xl p-6 bg-gradient-to-r from-[#37003c] to-[#4d0c54] border border-white/10 transition-all hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(0,255,135,0.15)] active:scale-[0.99] shadow-2xl"
+                >
+                    {/* Pulsating background decoration */}
+                    <div className="absolute inset-0 bg-[#00ff87]/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-[#02efff]/5 rounded-full blur-3xl -mr-32 -mt-32"></div>
+
+                    <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
+                        <div className="flex items-center gap-6">
+                            <div className="w-16 h-16 rounded-2xl bg-[#37003c] flex items-center justify-center border border-white/20 shadow-xl group-hover:border-[#00ff87]/50 transition-all group-hover:shadow-[0_0_20px_rgba(0,255,135,0.3)]">
+                                <Activity className="w-8 h-8 text-[#00ff87] animate-pulse" />
+                            </div>
+                            <div className="text-left">
+                                <h3 className="text-2xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 group-hover:text-[#00ff87] transition-colors">
+                                    The Wolf's Diagnosis
+                                </h3>
+                                <p className="text-white/60 text-xs font-bold uppercase tracking-[0.2em]">Alpha Strategy Analysis mode</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <div className="hidden md:block h-12 w-px bg-white/10"></div>
+                            <div className="px-6 py-3 bg-[#00ff87] text-[#37003c] font-black rounded-lg text-sm uppercase flex items-center gap-2 group-hover:bg-[#02efff] transition-all group-hover:translate-x-1 group-hover:shadow-[0_0_15px_rgba(2,239,255,0.4)]">
+                                Get Analysis
+                                <Sparkles size={16} />
+                            </div>
+                        </div>
+                    </div>
+                </button>
             </div>
             {/* View Switching */}
             {view === 'list' ? renderListView() : (
