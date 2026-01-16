@@ -163,7 +163,7 @@ const StandingsView: React.FC<StandingsViewProps> = ({ data }) => {
                 </div>
                 <div>
                     <h2 className="text-3xl font-black text-white">Premier League Table</h2>
-                    <p className="text-gray-400">Live Standings 2024/25</p>
+                    <p className="text-gray-400">Live Standings 2025/26</p>
                 </div>
             </div>
 

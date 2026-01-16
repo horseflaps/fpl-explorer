@@ -73,9 +73,9 @@ export const generateGeminiPrompt = (
 };
 
 export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retries = 3, delay = 1000): Promise<string> => {
-    // Priority: 1. Passed apiKey, 2. Env variable, 3. Empty string (fail later)
-    const effectiveKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY || "";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${effectiveKey}`;
+    // We now use a SECURE proxy endpoint on Vercel
+    // The key is injected server-side to hide it from the browser
+    const url = `/api/wolf-analysis`;
 
     try {
         const response = await fetch(url, {
@@ -83,29 +83,25 @@ export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retrie
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ text: prompt }]
-                }]
-            })
+            body: JSON.stringify({ prompt })
         });
 
         if (!response.ok) {
             const status = response.status;
             // Retry on 503 (Service Unavailable) or 429 (Too Many Requests - if strictly temporary)
             if ((status === 503 || status === 429) && retries > 0) {
-                console.warn(`Gemini API overloaded (${status}). Retrying in ${delay}ms...`);
+                console.warn(`Gemini Proxy overloaded (${status}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return fetchGeminiAnalysis(apiKey, prompt, retries - 1, delay * 2);
             }
 
-            const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
-            console.error("Gemini API Error Details:", errorData);
-            throw new Error(errorData.error?.message || `API Error: ${status}`);
+            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+            console.error("Gemini Proxy Error Details:", errorData);
+            throw new Error(errorData.details || errorData.error || `Proxy Error: ${status}`);
         }
 
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis generated.";
+        return data.text || "No analysis generated.";
     } catch (error: any) {
         console.error("Fetch Error:", error);
         throw new Error(error.message || "Network Error");
