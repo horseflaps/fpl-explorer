@@ -73,6 +73,15 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                 {/* Main Content */}
                 <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
                     <div className="max-w-7xl mx-auto">
+                        {/* Top Banner */}
+                        <div className="mb-8 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(0,255,135,0.15)] border border-white/5">
+                            <img
+                                src="/banner.png"
+                                alt="FantasyPremierWolf Banner"
+                                className="w-full h-auto object-cover"
+                            />
+                        </div>
+
                         {/* Page Header placeholder if needed, mostly handled by views */}
                         <div className="mb-8 md:hidden">
                             <h1 className="text-3xl font-black text-white">FantasyPremierWolf</h1>
