@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, Lightbulb, X, Activity, Key, Sparkles } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, Lightbulb, X, Activity, Sparkles } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry } from '../services/api';
 import { analyzeTeam } from '../services/analysis';
 import type { AnalysisResult } from '../services/analysis';
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
-import { GEMINI_API_KEY } from '../config';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -28,7 +27,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
 
     // AI State
-    const [apiKey, setApiKey] = useState(GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '');
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
 
@@ -112,18 +110,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     }
 
-    const handleSaveKey = (key: string) => {
-        setApiKey(key);
-        localStorage.setItem('gemini_api_key', key);
-    };
-
     const handleGeminiAnalysis = async () => {
-        if (!apiKey || !picksData || !entryData) return;
-
+        if (!picksData || !entryData) return;
         setIsAiLoading(true);
         try {
             const prompt = generateGeminiPrompt(data, picksData, entryData);
-            const result = await fetchGeminiAnalysis(apiKey, prompt);
+            const result = await fetchGeminiAnalysis(prompt);
             setAiAnalysisText(result);
         } catch (error: any) {
             console.error("Gemini Error:", error);
@@ -309,14 +301,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {apiKey && (
-                                <button
-                                    onClick={() => handleSaveKey('')}
-                                    className="text-white/30 hover:text-white text-[10px] font-bold uppercase bg-white/5 px-2 py-1 rounded transition-colors"
-                                >
-                                    Reset Key
-                                </button>
-                            )}
                             <button onClick={() => setShowAnalysis(false)} className="text-white/50 hover:text-white transition-colors">
                                 <X size={24} />
                             </button>
@@ -325,43 +309,22 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                     {/* Content */}
                     <div className="p-6 md:p-8 space-y-8">
-                        {/* API Key Input */}
-                        {!apiKey && (
-                            <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-lg flex flex-col md:flex-row gap-4 items-center">
-                                <div className="flex gap-2 items-center text-blue-400">
-                                    <Key size={20} />
-                                    <span className="font-bold text-sm">Enable Advanced AI</span>
-                                </div>
-                                <input
-                                    type="password"
-                                    placeholder="Enter Gemini API Key..."
-                                    className="bg-black/20 border border-white/10 rounded px-3 py-1.5 text-white text-sm flex-1 w-full"
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleSaveKey(e.currentTarget.value);
-                                    }}
-                                />
-                                <p className="text-[10px] text-white/40">Press Enter to save. Key is stored locally.</p>
-                            </div>
-                        )}
-
-                        {/* Mode Toggle (Only if Key exists) */}
-                        {apiKey && (
-                            <div className="flex justify-center mb-6">
-                                <button
-                                    onClick={() => setAiAnalysisText(null)}
-                                    className={`px-4 py-2 rounded-l-lg text-xs font-bold uppercase border border-white/10 ${!aiAnalysisText ? 'bg-[#00ff87] text-[#37003c]' : 'bg-white/5 text-white'}`}
-                                >
-                                    Instant Analysis
-                                </button>
-                                <button
-                                    onClick={handleGeminiAnalysis}
-                                    className={`px-4 py-2 rounded-r-lg text-xs font-bold uppercase border border-white/10 flex items-center gap-2 ${aiAnalysisText ? 'bg-[#02efff] text-[#37003c]' : 'bg-white/5 text-white'}`}
-                                >
-                                    <Sparkles size={14} />
-                                    Gemini AI
-                                </button>
-                            </div>
-                        )}
+                        {/* Mode Toggle */}
+                        <div className="flex justify-center mb-6">
+                            <button
+                                onClick={() => setAiAnalysisText(null)}
+                                className={`px-4 py-2 rounded-l-lg text-xs font-bold uppercase border border-white/10 ${!aiAnalysisText ? 'bg-[#00ff87] text-[#37003c]' : 'bg-white/5 text-white'}`}
+                            >
+                                Instant Analysis
+                            </button>
+                            <button
+                                onClick={handleGeminiAnalysis}
+                                className={`px-4 py-2 rounded-r-lg text-xs font-bold uppercase border border-white/10 flex items-center gap-2 ${aiAnalysisText ? 'bg-[#02efff] text-[#37003c]' : 'bg-white/5 text-white'}`}
+                            >
+                                <Sparkles size={14} />
+                                Gemini AI
+                            </button>
+                        </div>
 
                         {/* Gemini Loading / Result */}
                         {isAiLoading && (

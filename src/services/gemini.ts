@@ -72,7 +72,7 @@ export const generateGeminiPrompt = (
     `;
 };
 
-export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retries = 3, delay = 1000): Promise<string> => {
+export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1000): Promise<string> => {
     // We now use a SECURE proxy endpoint on Vercel
     // The key is injected server-side to hide it from the browser
     const url = `/api/wolf-analysis`;
@@ -92,7 +92,7 @@ export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retrie
             if ((status === 503 || status === 429) && retries > 0) {
                 console.warn(`Gemini Proxy overloaded (${status}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return fetchGeminiAnalysis(apiKey, prompt, retries - 1, delay * 2);
+                return fetchGeminiAnalysis(prompt, retries - 1, delay * 2);
             }
 
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
