@@ -2,6 +2,7 @@ import type { FPLResponse, EntryPicksResponse, LeagueStandingsResponse, Entry } 
 
 export const fetchFPLData = async (): Promise<FPLResponse> => {
     try {
+        console.log(`[API] Fetching: /api/bootstrap-static/`);
         const response = await fetch('/api/bootstrap-static/');
         if (!response.ok) {
             let errorMessage = `Error fetching FPL data: ${response.statusText}`;

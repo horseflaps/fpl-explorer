@@ -73,7 +73,9 @@ export const generateGeminiPrompt = (
 };
 
 export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retries = 3, delay = 1000): Promise<string> => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+    // Priority: 1. Passed apiKey, 2. Env variable, 3. Empty string (fail later)
+    const effectiveKey = apiKey || import.meta.env.VITE_GEMINI_API_KEY || "";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${effectiveKey}`;
 
     try {
         const response = await fetch(url, {

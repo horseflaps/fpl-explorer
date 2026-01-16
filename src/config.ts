@@ -1,1 +1,1 @@
-export const GEMINI_API_KEY = "AIzaSyCfdSy-yfnQ1JDKk1EMRLFlxB1Z46H6p-U";
+export const GEMINI_API_KEY = ""; // Use VITE_GEMINI_API_KEY environment variable in production
