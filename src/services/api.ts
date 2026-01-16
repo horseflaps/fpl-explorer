@@ -134,3 +134,17 @@ export const fetchEntryHistory = async (entryId: number): Promise<any> => {
         throw error;
     }
 };
+
+export const searchTeamsByName = async (query: string): Promise<any[]> => {
+    try {
+        const response = await fetch(`/api/team-search?q=${encodeURIComponent(query)}`);
+        if (!response.ok) {
+            throw new Error(`Error searching teams: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to search teams:", error);
+        throw error;
+    }
+};
