@@ -167,7 +167,7 @@ const HomeView: React.FC = () => {
                         <form onSubmit={handleTeamSearch} className="animate-in fade-in slide-in-from-left-4 duration-300">
                             {/* same as before */}
                             <label className="block text-sm font-bold text-gray-300 mb-2 text-left">
-                                Enter your Team ID <span className="text-red-500">*</span>
+                                Enter your Team ID
                             </label>
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
