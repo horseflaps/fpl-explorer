@@ -23,8 +23,9 @@ function App() {
         setLoading(true);
         const fplData = await fetchFPLData();
         setData(fplData);
-      } catch (err) {
-        setError('Failed to load FPL data. Please try again later.');
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Failed to load FPL data. Please try again later.');
       } finally {
         setLoading(false);
       }

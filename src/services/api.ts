@@ -4,7 +4,15 @@ export const fetchFPLData = async (): Promise<FPLResponse> => {
     try {
         const response = await fetch('/api/bootstrap-static/');
         if (!response.ok) {
-            throw new Error(`Error fetching FPL data: ${response.statusText}`);
+            let errorMessage = `Error fetching FPL data: ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) errorMessage = errorData.error;
+                if (errorData.details) errorMessage += ` (${errorData.details})`;
+            } catch (e) {
+                // Ignore JSON parse error on non-JSON error response
+            }
+            throw new Error(errorMessage);
         }
         const data = await response.json();
         return data;
