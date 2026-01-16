@@ -175,9 +175,10 @@ const HomeView: React.FC = () => {
                                         <Search className="h-5 w-5 text-gray-500" />
                                     </div>
                                     <input
-                                        type="number"
+                                        type="text"
+                                        inputMode="numeric"
                                         value={teamId}
-                                        onChange={(e) => setTeamId(e.target.value)}
+                                        onChange={(e) => setTeamId(e.target.value.replace(/\D/g, ''))}
                                         placeholder="e.g. 123456"
                                         className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-fpl-green focus:ring-1 focus:ring-fpl-green transition-all"
                                     />
@@ -190,10 +191,6 @@ const HomeView: React.FC = () => {
                                     Go
                                 </button>
                             </div>
-                            <p className="text-xs text-gray-500 mt-3 text-left bg-slate-900/50 p-3 rounded-lg border border-slate-800">
-                                💡 Tip: Checking your points on the FPL site? Your ID is in the URL: <br />
-                                <code className="text-fpl-green">.../entry/123456/event/...</code>
-                            </p>
                         </form>
                     ) : (
                         <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
