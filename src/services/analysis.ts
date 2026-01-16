@@ -27,14 +27,14 @@ export interface AnalysisResult {
 export const analyzeTeam = (
     data: FPLResponse,
     picks: EntryPicksResponse,
-    entry: Entry
+    _entry: Entry
 ): AnalysisResult => {
     // Helper to get player by ID
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
 
     const myPlayerIds = new Set(picks.picks.map(p => p.element));
-    const currentBank = entry.last_deadline_bank / 10; // Bank is in 10x units
+
 
     // 1. EO Trap Analysis
     // Identify high ownership players NOT in my team

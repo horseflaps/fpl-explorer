@@ -26,12 +26,12 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
 
             <div className="relative z-10 flex min-h-screen">
                 {/* Sidebar */}
-                <aside className="hidden md:flex flex-col w-64 border-r border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 h-screen overflow-y-auto">
+                <aside className="hidden md:flex flex-col w-80 border-r border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 h-screen overflow-y-auto">
                     <div className="p-6 border-b border-slate-800/50">
-                        <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fpl-green to-fpl-blue">
-                            FPL Explorer
+                        <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#00ff87] to-[#02efff]">
+                            FantasyPremierWolf
                         </h1>
-                        <p className="text-xs text-gray-400 mt-1">Fantasy Premier League Data</p>
+                        <p className="text-xs text-[#02efff] mt-1 uppercase tracking-widest font-bold">Alpha Strategy Tool</p>
                     </div>
 
                     <nav className="flex-1 p-4 space-y-2">
@@ -75,7 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                     <div className="max-w-7xl mx-auto">
                         {/* Page Header placeholder if needed, mostly handled by views */}
                         <div className="mb-8 md:hidden">
-                            <h1 className="text-3xl font-black text-white">FPL Explorer</h1>
+                            <h1 className="text-3xl font-black text-white">FantasyPremierWolf</h1>
                         </div>
                         {children}
                     </div>

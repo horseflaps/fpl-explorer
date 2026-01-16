@@ -304,8 +304,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <Activity className="text-[#37003c]" size={24} />
                             </div>
                             <div>
-                                <h2 className="text-2xl font-black text-white tracking-tight">AI TEAM DIAGNOSIS</h2>
-                                <p className="text-[#00ff87] text-xs font-bold uppercase tracking-widest">Elite Strategist Mode</p>
+                                <h2 className="text-2xl font-black text-white tracking-tight">THE WOLF'S DIAGNOSIS</h2>
+                                <p className="text-[#00ff87] text-xs font-bold uppercase tracking-widest">Alpha Wolf Mode</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -367,7 +367,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         {isAiLoading && (
                             <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-4">
                                 <Loader2 className="animate-spin w-8 h-8" />
-                                <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Consulting the Oracle...</span>
+                                <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Summoning the Wolf...</span>
                             </div>
                         )}
 

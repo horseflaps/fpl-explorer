@@ -1,4 +1,4 @@
-import type { FPLResponse, EntryPicksResponse, Entry, Player, Team } from '../types/fpl';
+import type { FPLResponse, EntryPicksResponse, Entry } from '../types/fpl';
 
 export const generateGeminiPrompt = (
     data: FPLResponse,
@@ -15,7 +15,7 @@ export const generateGeminiPrompt = (
         return player && team ? {
             name: player.web_name,
             team: team.short_name,
-            position: ['GKP', 'DEF', 'MID', 'FWD'][player.element_type],
+            position: ['?', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type], // element_type is 1-based
             cost: player.now_cost / 10,
             form: player.form,
             xG: player.expected_goals,
@@ -32,19 +32,32 @@ export const generateGeminiPrompt = (
     const currentGw = picks.entry_history.event;
 
     return `
-    You are an elite FPL manager. Analyze this team for GW${currentGw}.
+    You are the **Fantasy Premier Wolf**. 
+    You are an elite, aggressive FPL strategist who doesn't suffer fools gladly. 
+    Analyze this team for GW${currentGw}. Be direct, confident, and bantery.
 
     **TEAM DATA:**
     ${JSON.stringify(myPlayers, null, 2)}
     Bank: £${bank}m
 
+    **CONTEXT:**
+    - The user MAY have 2 Free Transfers (FT). If so, suggest aggressive moves.
+    - The user MAY have Chips (Wildcard, Free Hit) available.
+    - **CRITICAL RULE:** Maximum of 3 players from any single Premier League team. Do not suggest transfers that violate this.
+
     **OUTPUT FORMAT (Verified Markdown):**
     
     ## 🚨 TL;DR: Immediate Action
-    (One sentence: What is the SINGLE most important move?)
+    (Specific Advice: "Transfer OUT [Player] for [Player] immediately.")
+    
+    **Top Targets to BUY (Form/Stats Best):**
+    1.  [Player Name] (Team) - £Price - Reason
+    2.  [Player Name] (Team) - £Price - Reason
 
     ## 1. Chip Strategy
-    (Assume standard chips available: Wildcard, Free Hit, Bench Boost, Triple Captain. Recommend IF indispensable this week).
+    - **Usage Advice:** Should I use a chip this week? (Yes/No/Maybe).
+    - **Contingency:** IF I have a Wildcard/Free Hit, here is a recommended "Ideal Team" draft for this week:
+      (List GKP, DEF, MID, FWD core if applicable).
 
     ## 2. Issues & Fixes
     (Use a table. COLUMNS: Player, Issue, Recommended Fix, Priority).
@@ -55,11 +68,11 @@ export const generateGeminiPrompt = (
     ## 3. Captaincy
     (Top pick + Risk level).
 
-    Keep it concise. No fluff. Use tables for data.
+    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and mildy insulting like in the style of banter between good friends
     `;
 };
 
-export const fetchGeminiAnalysis = async (apiKey: string, prompt: string): Promise<string> => {
+export const fetchGeminiAnalysis = async (apiKey: string, prompt: string, retries = 3, delay = 1000): Promise<string> => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
 
     try {
@@ -76,9 +89,17 @@ export const fetchGeminiAnalysis = async (apiKey: string, prompt: string): Promi
         });
 
         if (!response.ok) {
+            const status = response.status;
+            // Retry on 503 (Service Unavailable) or 429 (Too Many Requests - if strictly temporary)
+            if ((status === 503 || status === 429) && retries > 0) {
+                console.warn(`Gemini API overloaded (${status}). Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return fetchGeminiAnalysis(apiKey, prompt, retries - 1, delay * 2);
+            }
+
             const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
             console.error("Gemini API Error Details:", errorData);
-            throw new Error(errorData.error?.message || `API Error: ${response.status}`);
+            throw new Error(errorData.error?.message || `API Error: ${status}`);
         }
 
         const data = await response.json();
