@@ -105,7 +105,11 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
 
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
             console.error("Gemini Proxy Error Details:", errorData);
-            throw new Error(errorData.details || errorData.error || `Proxy Error: ${status}`);
+
+            // Extracts message from Google API format { error: { message: "..." } } 
+            // or Proxy format { error: "...", details: "..." }
+            const message = errorData.error?.message || errorData.details || errorData.error || response.statusText;
+            throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
         }
 
         const data = await response.json();
