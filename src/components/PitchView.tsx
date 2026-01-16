@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Shirt, Loader2, AlertTriangle, Lightbulb, X, Activity, Sparkles } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
-import { fetchEntryPicks, fetchLiveEvent, fetchEntry } from '../services/api';
+import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory } from '../services/api';
 import { analyzeTeam } from '../services/analysis';
 import type { AnalysisResult } from '../services/analysis';
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
@@ -32,14 +32,21 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     const [picksData, setPicksData] = useState<EntryPicksResponse | null>(null);
     const [entryData, setEntryData] = useState<Entry | null>(null);
+    const [entryHistory, setEntryHistory] = useState<any | null>(null);
     const [liveStats, setLiveStats] = useState<Record<number, LiveStats>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch Entry Details (Name, etc) - only once
+    // Fetch Entry Details (Name, history, etc) - only once
     useEffect(() => {
         if (entryId) {
-            fetchEntry(entryId).then(setEntryData).catch(e => console.error("Error fetching entry:", e));
+            Promise.all([
+                fetchEntry(entryId),
+                fetchEntryHistory(entryId)
+            ]).then(([entry, history]) => {
+                setEntryData(entry);
+                setEntryHistory(history);
+            }).catch(e => console.error("Error fetching entry details:", e));
         }
     }, [entryId]);
 
@@ -114,7 +121,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         if (!picksData || !entryData) return;
         setIsAiLoading(true);
         try {
-            const prompt = generateGeminiPrompt(data, picksData, entryData);
+            const prompt = generateGeminiPrompt(data, picksData, entryData, entryHistory);
             const result = await fetchGeminiAnalysis(prompt);
             setAiAnalysisText(result);
         } catch (error: any) {

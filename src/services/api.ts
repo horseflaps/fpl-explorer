@@ -120,3 +120,17 @@ export const fetchEntry = async (entryId: number): Promise<Entry> => {
         throw error;
     }
 };
+
+export const fetchEntryHistory = async (entryId: number): Promise<any> => {
+    try {
+        const response = await fetch(`/api/entry/${entryId}/history/`);
+        if (!response.ok) {
+            throw new Error(`Error fetching entry history: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch entry history:", error);
+        throw error;
+    }
+};

@@ -3,7 +3,8 @@ import type { FPLResponse, EntryPicksResponse, Entry } from '../types/fpl';
 export const generateGeminiPrompt = (
     data: FPLResponse,
     picks: EntryPicksResponse,
-    entry: Entry
+    entry: Entry,
+    history?: any
 ): string => {
     // Helpers
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
@@ -26,10 +27,28 @@ export const generateGeminiPrompt = (
     }).filter(Boolean);
 
     const bank = entry.last_deadline_bank / 10;
-
-    // Note: FPL API 'chips' requires fetching entry history separately.
-    // For now, we'll ask the AI to suggest generic chip strategy.
     const currentGw = picks.entry_history.event;
+
+    // Estimate Free Transfers (FT)
+    // Basic logic: If no transfers last week, we likely have 2. 
+    // If Wildcard/Free Hit used this week, FT is infinite/reset.
+    let estimatedFT = 1;
+    if (history && history.current) {
+        const prevGwIndex = history.current.findIndex((h: any) => h.event === currentGw) - 1;
+        if (prevGwIndex >= 0) {
+            const prevGw = history.current[prevGwIndex];
+            if (prevGw.event_transfers === 0) {
+                estimatedFT = 2;
+            }
+        }
+    }
+
+    // Account for transfers ALREADY made this week
+    const transfersMadeThisWeek = picks.entry_history.event_transfers || 0;
+    const netFT = Math.max(0, estimatedFT - transfersMadeThisWeek);
+
+    // Check Chips
+    const chipsUsed = history?.chips?.map((c: any) => c.name).join(', ') || 'None';
 
     return `
     You are the **Fantasy Premier Wolf**. 
@@ -39,10 +58,12 @@ export const generateGeminiPrompt = (
     **TEAM DATA:**
     ${JSON.stringify(myPlayers, null, 2)}
     Bank: £${bank}m
+    Available Free Transfers: ${netFT} (Estimated based on history)
+    Transfers already made this Gameweek: ${transfersMadeThisWeek}
 
     **CONTEXT:**
-    - The user MAY have 2 Free Transfers (FT). If so, suggest aggressive moves.
-    - The user MAY have Chips (Wildcard, Free Hit) available.
+    - Chips already played this season: ${chipsUsed}
+    - Current Chip Active: ${picks.active_chip || 'None'}
     - **CRITICAL RULE:** Maximum of 3 players from any single Premier League team. Do not suggest transfers that violate this.
 
     **OUTPUT FORMAT (Verified Markdown):**
@@ -55,7 +76,7 @@ export const generateGeminiPrompt = (
     2.  [Player Name] (Team) - £Price - Reason
 
     ## 1. Chip Strategy
-    - **Usage Advice:** Should I use a chip this week? (Yes/No/Maybe).
+    - **Usage Advice:** Should I use a chip this week if one is available?
     - **Contingency:** IF I have a Wildcard/Free Hit, here is a recommended "Ideal Team" draft for this week:
       (List GKP, DEF, MID, FWD core if applicable).
 
@@ -64,11 +85,12 @@ export const generateGeminiPrompt = (
     | Player | Issue | Fix | Priority |
     |---|---|---|---|
     | ... | ... | ... | ... |
+    | ... | ... | ... | ... |
 
     ## 3. Captaincy
     (Top pick + Risk level).
 
-    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and mildy insulting like in the style of banter between good friends
+    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and mildy insulting like in the style of banter between good friends.
     `;
 };
 
