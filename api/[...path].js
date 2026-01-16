@@ -11,7 +11,9 @@ export default async function handler(req, res) {
     const pathString = Array.isArray(path) ? path.join('/') : path;
 
     // Clean up any double slashes, but keep the API structure
-    const targetUrl = `https://fantasy.premierleague.com/api/${pathString}`;
+    // Important: FPL API (Django) requires a trailing slash
+    const cleanPath = pathString.replace(/\/$/, '');
+    const targetUrl = `https://fantasy.premierleague.com/api/${cleanPath}/`;
 
     try {
         const response = await fetch(targetUrl, {
