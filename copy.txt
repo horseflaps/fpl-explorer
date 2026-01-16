@@ -1,0 +1,26 @@
+The 4 Hidden Factors
+1. Effective Ownership (EO) - "The Fear Factor"
+What it is: If Haaland is owned by 80% of players and captained by 70%, his "Effective Ownership" is over 100%.
+
+Why it matters: If he scores and you own him but didn't captain him, your rank will actually drop.
+
+The Adjustment: You need to ask the AI: "Identify which players have >100% Effective Ownership. Am I betting against the house by not captaining them?"
+
+2. Team Value vs. Selling Price
+What it is: The AI might tell you to sell Player A to buy Player B. But if you bought Player A at £6.0m and he is now £6.4m, selling him means you only get £6.2m back. Buying him back later will cost you £6.4m.
+
+The Adjustment: You need to tell the AI your Purchase Price (PP) vs Current Price (CP) so it doesn't accidentally burn millions in team value for a short-term move.
+
+3. xGI Delta (Luck vs. Skill)
+What it is: Is a player scoring because they are good, or because they are lucky?
+
+High xGI (Expected Goal Involvement) + Low Points: The player is "due" a haul (Keep them!).
+
+Low xGI + High Points: The player is overperforming and might "dry up" (Sell while value is high!).
+
+The Adjustment: Ask the AI to check "Underlying stats (xG/xA) vs Actual Returns to spot sustainable form."
+
+4. The "Dead-End" Strategy
+What it is: Sometimes you shouldn't fix your team. If you plan to Wildcard in GW26, you don't need long-term assets now. You can buy players who have 3 great games now, even if they have terrible games later, because you're going to sell everyone in GW26 anyway.
+
+The Adjustment: Explicitly state: "I am willing to dead-end my team into GW[X]. Short-term points are the only priority."

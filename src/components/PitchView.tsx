@@ -1,8 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle } from 'lucide-react';
-import type { FPLResponse, EntryPicksResponse, Pick, LiveStats } from '../types/fpl';
-import { fetchEntryPicks, fetchLiveEvent } from '../services/api';
+import { Shirt, Loader2, AlertTriangle, Lightbulb, X, Activity, Key, Sparkles } from 'lucide-react';
+import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
+import { fetchEntryPicks, fetchLiveEvent, fetchEntry } from '../services/api';
+import { analyzeTeam } from '../services/analysis';
+import type { AnalysisResult } from '../services/analysis';
+import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
+import { GEMINI_API_KEY } from '../config';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface PitchViewProps {
     data: FPLResponse;
@@ -18,11 +24,26 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     // View State
     const [view, setView] = useState<'pitch' | 'list'>('pitch');
+    const [showAnalysis, setShowAnalysis] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+
+    // AI State
+    const [apiKey, setApiKey] = useState(GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '');
+    const [isAiLoading, setIsAiLoading] = useState(false);
+    const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
 
     const [picksData, setPicksData] = useState<EntryPicksResponse | null>(null);
+    const [entryData, setEntryData] = useState<Entry | null>(null);
     const [liveStats, setLiveStats] = useState<Record<number, LiveStats>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Fetch Entry Details (Name, etc) - only once
+    useEffect(() => {
+        if (entryId) {
+            fetchEntry(entryId).then(setEntryData).catch(e => console.error("Error fetching entry:", e));
+        }
+    }, [entryId]);
 
     useEffect(() => {
         const loadPicks = async () => {
@@ -91,6 +112,37 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     }
 
+    const handleSaveKey = (key: string) => {
+        setApiKey(key);
+        localStorage.setItem('gemini_api_key', key);
+    };
+
+    const handleGeminiAnalysis = async () => {
+        if (!apiKey || !picksData || !entryData) return;
+
+        setIsAiLoading(true);
+        try {
+            const prompt = generateGeminiPrompt(data, picksData, entryData);
+            const result = await fetchGeminiAnalysis(apiKey, prompt);
+            setAiAnalysisText(result);
+        } catch (error: any) {
+            console.error("Gemini Error:", error);
+            setAiAnalysisText(`Error: ${error.message || "Unknown error occurred"}`);
+        } finally {
+            setIsAiLoading(false);
+        }
+    };
+
+    const handleAnalyze = () => {
+        if (!picksData || !entryData) return;
+
+        if (!analysisResult) {
+            const result = analyzeTeam(data, picksData, entryData);
+            setAnalysisResult(result);
+        }
+        setShowAnalysis(true);
+    };
+
     // Categorize players by position for the pitch
     // 1: GKP, 2: DEF, 3: MID, 4: FWD
     const startingXI = picksData.picks.filter(p => p.position <= 11);
@@ -110,7 +162,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         if (!player || !team) return null;
 
         return (
-            <div key={pick.element} className="flex flex-col items-center justify-center w-20 md:w-28 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px]">
+            <div key={pick.element} className="flex flex-col items-center justify-center w-24 md:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px]">
                 <div className={`relative mb-1 transition-transform duration-300 transform group-hover:scale-110 ${pick.is_captain || pick.is_vice_captain ? 'scale-110' : ''}`} style={{ transformStyle: 'preserve-3d' }}>
                     <img
                         src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}-66.png`}
@@ -132,14 +184,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </div>
 
                 {/* Info Card - Styled to match reference exactly */}
-                <div className="flex flex-col w-full max-w-[80px] md:max-w-[100px] shadow-lg">
+                <div className="flex flex-col w-full max-w-[90px] md:max-w-[110px] shadow-lg">
                     {/* Name Box (White) */}
                     <div className="bg-white text-slate-900 px-1 py-0.5 rounded-t-[3px] text-center w-full">
-                        <p className="text-[8px] md:text-[10px] font-black uppercase truncate leading-tight tracking-tighter">{player.web_name}</p>
+                        <p className="text-[9px] md:text-[11px] font-black uppercase truncate leading-tight tracking-tighter">{player.web_name}</p>
                     </div>
                     {/* Points Box (Dark) */}
                     <div className="bg-[#37003c] text-white px-1 py-0.5 rounded-b-[3px] text-center w-full border-t border-slate-200/20">
-                        <p className="text-[8px] md:text-[10px] font-bold leading-none">{points > 0 ? points : '-'}</p>
+                        <p className="text-[10px] md:text-[12px] font-black leading-none">{points > 0 ? points : '-'}</p>
                     </div>
                 </div>
             </div>
@@ -238,6 +290,229 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     };
 
+    const renderAnalysisModal = () => {
+        if (!showAnalysis) return null;
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAnalysis(false)}></div>
+                <div className="relative bg-[#220025] w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl border border-white/10 animate-in zoom-in-95 duration-200">
+                    {/* Header */}
+                    <div className="sticky top-0 z-10 bg-[#37003c] p-6 border-b border-white/10 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-[#00ff87] p-2 rounded-lg">
+                                <Activity className="text-[#37003c]" size={24} />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-black text-white tracking-tight">AI TEAM DIAGNOSIS</h2>
+                                <p className="text-[#00ff87] text-xs font-bold uppercase tracking-widest">Elite Strategist Mode</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {apiKey && (
+                                <button
+                                    onClick={() => handleSaveKey('')}
+                                    className="text-white/30 hover:text-white text-[10px] font-bold uppercase bg-white/5 px-2 py-1 rounded transition-colors"
+                                >
+                                    Reset Key
+                                </button>
+                            )}
+                            <button onClick={() => setShowAnalysis(false)} className="text-white/50 hover:text-white transition-colors">
+                                <X size={24} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6 md:p-8 space-y-8">
+                        {/* API Key Input */}
+                        {!apiKey && (
+                            <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-lg flex flex-col md:flex-row gap-4 items-center">
+                                <div className="flex gap-2 items-center text-blue-400">
+                                    <Key size={20} />
+                                    <span className="font-bold text-sm">Enable Advanced AI</span>
+                                </div>
+                                <input
+                                    type="password"
+                                    placeholder="Enter Gemini API Key..."
+                                    className="bg-black/20 border border-white/10 rounded px-3 py-1.5 text-white text-sm flex-1 w-full"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSaveKey(e.currentTarget.value);
+                                    }}
+                                />
+                                <p className="text-[10px] text-white/40">Press Enter to save. Key is stored locally.</p>
+                            </div>
+                        )}
+
+                        {/* Mode Toggle (Only if Key exists) */}
+                        {apiKey && (
+                            <div className="flex justify-center mb-6">
+                                <button
+                                    onClick={() => setAiAnalysisText(null)}
+                                    className={`px-4 py-2 rounded-l-lg text-xs font-bold uppercase border border-white/10 ${!aiAnalysisText ? 'bg-[#00ff87] text-[#37003c]' : 'bg-white/5 text-white'}`}
+                                >
+                                    Instant Analysis
+                                </button>
+                                <button
+                                    onClick={handleGeminiAnalysis}
+                                    className={`px-4 py-2 rounded-r-lg text-xs font-bold uppercase border border-white/10 flex items-center gap-2 ${aiAnalysisText ? 'bg-[#02efff] text-[#37003c]' : 'bg-white/5 text-white'}`}
+                                >
+                                    <Sparkles size={14} />
+                                    Gemini AI
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Gemini Loading / Result */}
+                        {isAiLoading && (
+                            <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-4">
+                                <Loader2 className="animate-spin w-8 h-8" />
+                                <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Consulting the Oracle...</span>
+                            </div>
+                        )}
+
+                        {/* Gemini Content */}
+                        {aiAnalysisText && !isAiLoading && (
+                            <div className="bg-white/5 p-6 md:p-8 rounded-xl border border-white/10 overflow-hidden">
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        h1: ({ node, ...props }: any) => <h1 className="text-2xl font-black text-[#02efff] mb-4 uppercase tracking-tight border-b border-white/10 pb-2" {...props} />,
+                                        h2: ({ node, ...props }: any) => <h2 className="text-xl font-bold text-[#00ff87] mt-6 mb-3 uppercase tracking-wide" {...props} />,
+                                        h3: ({ node, ...props }: any) => <h3 className="text-lg font-bold text-white mt-4 mb-2" {...props} />,
+                                        p: ({ node, ...props }: any) => <p className="text-white/80 text-sm leading-relaxed mb-4" {...props} />,
+                                        ul: ({ node, ...props }: any) => <ul className="list-disc list-inside space-y-2 mb-4 text-white/80 text-sm" {...props} />,
+                                        ol: ({ node, ...props }: any) => <ol className="list-decimal list-inside space-y-2 mb-4 text-white/80 text-sm" {...props} />,
+                                        li: ({ node, ...props }: any) => <li className="pl-2" {...props} />,
+                                        strong: ({ node, ...props }: any) => <strong className="text-[#02efff] font-bold" {...props} />,
+                                        table: ({ node, ...props }: any) => <div className="overflow-x-auto mb-6 rounded-lg border border-white/10"><table className="min-w-full divide-y divide-white/10 text-sm" {...props} /></div>,
+                                        thead: ({ node, ...props }: any) => <thead className="bg-white/10" {...props} />,
+                                        th: ({ node, ...props }: any) => <th className="px-4 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider" {...props} />,
+                                        td: ({ node, ...props }: any) => <td className="px-4 py-3 text-white/80 whitespace-normal break-words border-t border-white/5" {...props} />,
+                                        blockquote: ({ node, ...props }: any) => <blockquote className="border-l-4 border-[#02efff] pl-4 italic text-white/60 my-4" {...props} />,
+                                    }}
+                                >
+                                    {aiAnalysisText}
+                                </ReactMarkdown>
+                            </div>
+                        )}
+
+                        {/* Local Analysis Content (Default) */}
+                        {!aiAnalysisText && !isAiLoading && analysisResult && (
+                            <>
+                                {/* 1. EO Trap */}
+                                <section className="bg-white/5 rounded-xl p-6 border border-white/5">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <h3 className="text-lg font-bold text-white mb-2">1. The "EO" Trap</h3>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-black ${analysisResult.eoTrap.riskLevel === 'HIGH' ? 'bg-red-500 text-white' : analysisResult.eoTrap.riskLevel === 'MEDIUM' ? 'bg-yellow-500 text-black' : 'bg-[#00ff87] text-[#37003c]'}`}>
+                                            RISK: {analysisResult.eoTrap.riskLevel}
+                                        </span>
+                                    </div>
+                                    <p className="text-white/80 text-sm mb-4 italic">"{analysisResult.eoTrap.description}"</p>
+                                    {analysisResult.eoTrap.players.length > 0 && (
+                                        <div className="space-y-2">
+                                            <p className="text-xs text-white/50 font-bold uppercase">Threats (Not Owned)</p>
+                                            <div className="flex gap-3 overflow-x-auto pb-2">
+                                                {analysisResult.eoTrap.players.map(p => (
+                                                    <div key={p.id} className="bg-white/10 px-3 py-2 rounded flex items-center gap-2 min-w-[140px]">
+                                                        <div className="text-xs">
+                                                            <div className="font-bold text-white">{p.web_name}</div>
+                                                            <div className="text-[#02efff]">EO: {p.selected_by_percent}%</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </section>
+
+                                {/* 2. Sustainability */}
+                                <section className="bg-white/5 rounded-xl p-6 border border-white/5">
+                                    <h3 className="text-lg font-bold text-white mb-4">2. xGI Sustainability Check</h3>
+                                    <p className="text-white/80 text-sm mb-4 italic">"{analysisResult.sustainability.description}"</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {analysisResult.sustainability.underperforming.length > 0 && (
+                                            <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-lg">
+                                                <p className="text-green-400 font-bold text-xs uppercase mb-2">✓ Keep (Underperforming xGI)</p>
+                                                <div className="space-y-1">
+                                                    {analysisResult.sustainability.underperforming.map(p => (
+                                                        <div key={p.id} className="text-white text-sm font-semibold">{p.web_name}</div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {analysisResult.sustainability.overperforming.length > 0 && (
+                                            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
+                                                <p className="text-red-400 font-bold text-xs uppercase mb-2">⚠ Sell (Overperforming xGI)</p>
+                                                <div className="space-y-1">
+                                                    {analysisResult.sustainability.overperforming.map(p => (
+                                                        <div key={p.id} className="text-white text-sm font-semibold">{p.web_name}</div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </section>
+
+                                {/* 3. The Verdict */}
+                                <section className="relative overflow-hidden rounded-xl p-6 md:p-8">
+                                    <div className="absolute inset-0 bg-gradient-to-r from-[#00ff87]/20 to-[#02efff]/20 border border-[#00ff87]/30"></div>
+                                    <div className="relative z-10">
+                                        <div className="flex items-center gap-3 mb-6">
+                                            <h3 className="text-2xl font-black text-white italic">THE VERDICT</h3>
+                                            <div className="h-px bg-white/20 flex-1"></div>
+                                            <span className="text-xs font-bold uppercase tracking-widest text-[#02efff]">{analysisResult.verdict.strategy}</span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {/* BUY */}
+                                            <div className="bg-[#37003c]/80 p-4 rounded-lg border border-[#00ff87]/50 relative overflow-hidden group">
+                                                <div className="absolute top-0 left-0 w-1 h-full bg-[#00ff87]"></div>
+                                                <p className="text-[#00ff87] font-black text-xs uppercase mb-1 tracking-widest">PRIORITY BUY</p>
+                                                {analysisResult.verdict.buy ? (
+                                                    <>
+                                                        <p className="text-2xl font-black text-white mb-1">{analysisResult.verdict.buy.player.web_name}</p>
+                                                        <p className="text-white/60 text-xs leading-relaxed">{analysisResult.verdict.buy.reason}</p>
+                                                    </>
+                                                ) : <p className="text-white/50 text-sm">No urgent buys.</p>}
+                                            </div>
+
+                                            {/* SELL */}
+                                            <div className="bg-[#37003c]/80 p-4 rounded-lg border border-red-500/50 relative overflow-hidden">
+                                                <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+                                                <p className="text-red-500 font-black text-xs uppercase mb-1 tracking-widest">SUGGESTED SELL</p>
+                                                {analysisResult.verdict.sell ? (
+                                                    <>
+                                                        <p className="text-2xl font-black text-white mb-1">{analysisResult.verdict.sell.player.web_name}</p>
+                                                        <p className="text-white/60 text-xs leading-relaxed">{analysisResult.verdict.sell.reason}</p>
+                                                    </>
+                                                ) : <p className="text-white/50 text-sm">No urgent sells.</p>}
+                                            </div>
+
+                                            {/* CAPTAIN */}
+                                            <div className="bg-[#37003c]/80 p-4 rounded-lg border border-[#02efff]/50 relative overflow-hidden">
+                                                <div className="absolute top-0 left-0 w-1 h-full bg-[#02efff]"></div>
+                                                <p className="text-[#02efff] font-black text-xs uppercase mb-1 tracking-widest">CAPTAINCY</p>
+                                                {analysisResult.verdict.captain ? (
+                                                    <>
+                                                        <p className="text-2xl font-black text-white mb-1">{analysisResult.verdict.captain.player.web_name}</p>
+                                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${analysisResult.verdict.captain.safety === 'Safe' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                                            {analysisResult.verdict.captain.safety} Pick
+                                                        </span>
+                                                    </>
+                                                ) : <p className="text-white/50 text-sm">No captain data.</p>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const activePoints = picksData?.entry_history.points ?? 0;
     const rank = picksData?.entry_history.rank ?? 0;
 
@@ -246,19 +521,33 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             {/* Header / Stats Dashboard */}
             <div className="bg-[#37003c] -mx-4 md:-mx-8 px-4 md:px-8 py-4 md:py-8 text-white shadow-2xl relative z-20">
                 <div className="max-w-4xl mx-auto space-y-6">
-                    <h2 className="text-2xl md:text-3xl font-black tracking-tight">My Team</h2>
-                    <button
-                        onClick={() => setView('pitch')}
-                        className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'pitch' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
-                    >
-                        Pitch View
-                    </button>
-                    <button
-                        onClick={() => setView('list')}
-                        className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'list' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
-                    >
-                        List View
-                    </button>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl md:text-3xl font-black tracking-tight">{entryData?.name || 'My Team'}</h2>
+                            {entryData && <p className="text-white/60 text-xs font-bold uppercase">{entryData.player_first_name} {entryData.player_last_name}</p>}
+                        </div>
+                        <div className="flex bg-[#4d0c54] rounded-lg p-1 gap-1">
+                            <button
+                                onClick={() => setView('pitch')}
+                                className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'pitch' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
+                            >
+                                Pitch View
+                            </button>
+                            <button
+                                onClick={() => setView('list')}
+                                className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'list' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
+                            >
+                                List View
+                            </button>
+                            <button
+                                onClick={handleAnalyze}
+                                className="px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all bg-[#00ff87] text-[#37003c] hover:bg-[#00ff87]/80 flex items-center gap-2"
+                            >
+                                <Lightbulb size={14} />
+                                Analyse
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -434,6 +723,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     </div>
                 </div>
             )}
+
+            {/* Analysis Modal */}
+            {renderAnalysisModal()}
         </div>
     );
 };
