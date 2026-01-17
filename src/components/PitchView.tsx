@@ -388,8 +388,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <h3 className="text-lg font-bold text-white">1. The "EO" Trap</h3>
                                             <div className="group relative">
                                                 <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
-                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
-                                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900 border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
+                                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
                                                     <span className="text-[#02efff] font-black block mb-1 uppercase tracking-wider">EO (Effective Ownership)</span>
                                                     Ownership + Captaincy weight. If a player is 100%+ EO and you don't own them, their points actively hurt your rank.
                                                 </div>
@@ -401,8 +401,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             </span>
                                             <div className="group relative">
                                                 <p className="text-[10px] text-white/40 border-b border-white/10 border-dotted cursor-help">What is Risk?</p>
-                                                <div className="absolute top-full right-0 mt-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
-                                                    <div className="absolute -top-1 right-4 w-2 h-2 bg-slate-900/90 border-l border-t border-white/20 rotate-45"></div>
+                                                <div className="absolute top-full right-0 mt-3 w-64 p-4 bg-slate-900 border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
+                                                    <div className="absolute -top-1 right-4 w-2 h-2 bg-slate-900 border-l border-t border-white/20 rotate-45"></div>
                                                     <span className="text-red-400 font-black block mb-1 uppercase tracking-wider">RISK Level</span>
                                                     How vulnerable your current rank is to non-owned 'Template' players. High Risk means missing icons who score big could tank your position.
                                                 </div>
@@ -433,8 +433,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         <h3 className="text-lg font-bold text-white">2. xGI Sustainability Check</h3>
                                         <div className="group relative">
                                             <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
-                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
-                                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900 border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
+                                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
                                                 <span className="text-[#00ff87] font-black block mb-1 uppercase tracking-wider">xGI (Expected Goal Involvement)</span>
                                                 Measures quality of chances. A high xGI means a player *should* be scoring or assisting, even if they haven't yet.
                                             </div>
@@ -474,8 +474,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <div className="h-px bg-white/20 flex-1"></div>
                                             <div className="group relative flex items-center gap-2">
                                                 <span className="text-xs font-bold uppercase tracking-widest text-[#02efff] border-b border-[#02efff]/30 border-dotted cursor-help">{analysisResult.verdict.strategy}</span>
-                                                <div className="absolute bottom-full right-0 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
-                                                    <div className="absolute -bottom-1 right-4 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                                <div className="absolute top-full right-0 mt-3 w-64 p-4 bg-slate-900 border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
+                                                    <div className="absolute -top-1 right-4 w-2 h-2 bg-slate-900 border-l border-t border-white/20 rotate-45"></div>
                                                     <span className="text-[#02efff] font-black block mb-1 uppercase tracking-wider">Strategy: {analysisResult.verdict.strategy}</span>
                                                     The Wolf's recommended playstyle. **Protect Rank** means playing safety first; **Attack** means taking calculated punts to climb.
                                                 </div>
@@ -536,84 +536,92 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     return (
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-            {/* Header / Stats Dashboard */}
-            <div className="bg-[#37003c] -mx-4 md:-mx-8 px-4 md:px-8 py-4 md:py-8 text-white shadow-2xl relative z-20">
-                <div className="max-w-4xl mx-auto space-y-6">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h2 className="text-2xl md:text-3xl font-black tracking-tight">{entryData?.name || 'My Team'}</h2>
-                            {entryData && <p className="text-white/60 text-xs font-bold uppercase">{entryData.player_first_name} {entryData.player_last_name}</p>}
-                        </div>
-                        <div className="flex bg-[#4d0c54] rounded-lg p-1 gap-1">
-                            <button
-                                onClick={() => setView('pitch')}
-                                className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'pitch' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
-                            >
-                                Pitch View
-                            </button>
-                            <button
-                                onClick={() => setView('list')}
-                                className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${view === 'list' ? 'bg-[#37003c] text-white' : 'text-white/60 hover:bg-[#581c5e] hover:text-white'}`}
-                            >
-                                List View
-                            </button>
-                        </div>
+            {/* Gameweek Nav & View Toggle */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/10 mb-6">
+                <div className="flex items-center gap-4 order-2 md:order-1">
+                    <button
+                        onClick={handlePrevGw}
+                        disabled={loading || selectedGw <= 1}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {'<'}
+                    </button>
+                    <div className="text-center min-w-[120px]">
+                        <h3 className="text-xl font-bold">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
+                        <span className="text-[10px] text-[#00ff87] font-bold uppercase tracking-widest">Selected Event</span>
                     </div>
+                    <button
+                        onClick={handleNextGw}
+                        disabled={loading || selectedGw >= 38}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {'>'}
+                    </button>
+                </div>
+
+                <div className="flex bg-[#37003c] rounded-lg p-1 gap-1 order-1 md:order-2">
+                    <button
+                        onClick={() => setView('pitch')}
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all flex items-center gap-2 ${view === 'pitch' ? 'bg-[#00ff87] text-[#37003c]' : 'text-white/60 hover:text-white'}`}
+                    >
+                        Pitch View
+                    </button>
+                    <button
+                        onClick={() => setView('list')}
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all flex items-center gap-2 ${view === 'list' ? 'bg-[#00ff87] text-[#37003c]' : 'text-white/60 hover:text-white'}`}
+                    >
+                        List View
+                    </button>
                 </div>
             </div>
 
-            {/* Gameweek Nav */}
-            <div className="flex justify-center items-center gap-6">
-                <button
-                    onClick={handlePrevGw}
-                    disabled={loading || selectedGw <= 1}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {'<'}
-                </button>
-                <div className="text-center min-w-[120px]">
-                    <h3 className="text-xl font-bold">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
-                    <span className="text-xs text-[#00ff87] font-bold cursor-pointer hover:underline">Team of the Week →</span>
-                </div>
-                <button
-                    onClick={handleNextGw}
-                    disabled={loading || selectedGw >= 38}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {'>'}
-                </button>
-            </div>
+            {/* Stats Grid & Team Info */}
+            <div className="max-w-4xl mx-auto space-y-8">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                    {/* Left Side: Team Name */}
+                    <div className="flex-1 text-center md:text-right">
+                        <h2 className="text-xl md:text-3xl font-black text-white tracking-tighter uppercase leading-tight line-clamp-2">{entryData?.name || 'My Team'}</h2>
+                        <div className="h-1 w-12 bg-[#00ff87] ml-auto mt-2 hidden md:block"></div>
+                    </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-5 gap-2 md:gap-8 text-center items-end max-w-3xl mx-auto">
-                <div className="flex flex-col gap-1">
-                    <span className="text-xl md:text-2xl font-bold">{data.events.find(e => e.id === selectedGw)?.average_entry_score || '-'}</span>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase">Average Points</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <span className="text-xl md:text-2xl font-bold">{data.events.find(e => e.id === selectedGw)?.highest_score || '-'}</span>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center justify-center gap-1">
-                        Highest Points <span className="text-[8px]">→</span>
-                    </span>
-                </div>
+                    {/* Center: Points Diamond */}
+                    <div className="relative group shrink-0">
+                        <div className="bg-gradient-to-b from-[#00ff87] to-[#02efff] text-slate-900 rounded-2xl p-6 md:p-8 shadow-[0_0_50px_rgba(0,255,135,0.3)] transition-all transform hover:scale-105 group-hover:shadow-[0_0_70px_rgba(2,239,255,0.4)]">
+                            <span className={`block text-5xl md:text-7xl font-black tracking-tighter leading-none text-center ${loading ? 'opacity-50 blur-sm' : ''}`}>{activePoints}</span>
+                            <span className="block text-[10px] md:text-xs font-black uppercase tracking-[0.2em] mt-2 text-center">Total Points</span>
+                        </div>
+                    </div>
 
-                {/* Highlights (Total Points) */}
-                <div className="relative -top-2">
-                    <div className="bg-gradient-to-b from-[#00ff87] to-[#02efff] text-slate-900 rounded-xl p-3 shadow-[0_0_30px_rgba(0,255,135,0.4)] transition-all hover:scale-105 cursor-pointer">
-                        <span className={`block text-4xl md:text-5xl font-black tracking-tighter leading-none ${loading ? 'opacity-50 blur-sm' : ''}`}>{activePoints}</span>
-                        <span className="text-[10px] font-black uppercase tracking-tight">Total Points</span>
+                    {/* Right Side: Manager Name */}
+                    <div className="flex-1 text-center md:text-left">
+                        {entryData && (
+                            <>
+                                <p className="text-white/40 text-[10px] uppercase tracking-widest font-black mb-1">Director of Football</p>
+                                <h3 className="text-lg md:text-2xl font-bold text-white tracking-tight">{entryData.player_first_name} {entryData.player_last_name}</h3>
+                            </>
+                        )}
+                        <div className="h-1 w-12 bg-[#02efff] mt-2 hidden md:block"></div>
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-1">
-                    <span className="text-lg md:text-xl font-bold tracking-tight">{rank?.toLocaleString() || '-'}</span>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase">GW Rank</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <span className="text-xl md:text-2xl font-bold">{picksData?.entry_history.event_transfers || 0}</span>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center justify-center gap-1">
-                        Transfers <span className="text-[8px]">→</span>
-                    </span>
+                {/* Sub Stats Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 bg-white/5 p-6 rounded-2xl border border-white/10 backdrop-blur-sm">
+                    <div className="flex flex-col items-center">
+                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Average</span>
+                        <span className="text-xl font-black text-white">{data.events.find(e => e.id === selectedGw)?.average_entry_score || '-'}</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Highest</span>
+                        <span className="text-xl font-black text-[#00ff87]">{data.events.find(e => e.id === selectedGw)?.highest_score || '-'}</span>
+                    </div>
+                    <div className="flex flex-col items-center border-t md:border-t-0 pt-4 md:pt-0 border-white/10">
+                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">GW Rank</span>
+                        <span className="text-xl font-black text-white">{rank?.toLocaleString() || '-'}</span>
+                    </div>
+                    <div className="flex flex-col items-center border-t md:border-t-0 pt-4 md:pt-0 border-white/10">
+                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Transfers</span>
+                        <span className="text-xl font-black text-[#02efff]">{picksData?.entry_history.event_transfers || 0}</span>
+                    </div>
                 </div>
             </div>
 

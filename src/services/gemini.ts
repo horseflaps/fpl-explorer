@@ -90,7 +90,7 @@ export const generateGeminiPrompt = (
     ## 3. Captaincy
     (Top pick + Risk level).
 
-    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and mildy insulting like in the style of banter between good friends.
+    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and in the style of friendly banter between good friends.
     `;
 };
 

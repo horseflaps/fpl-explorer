@@ -73,7 +73,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                 {/* Main Content */}
                 <main className="flex-1 overflow-y-auto h-screen scroll-smooth">
                     {/* Sticky Banner Wrapper */}
-                    <div className="sticky top-0 z-20 bg-slate-950/80 backdrop-blur-xl border-b border-white/5">
+                    <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-white/5">
                         <div className="max-w-7xl mx-auto p-4 md:p-8 pb-4 md:pb-6">
                             {/* Top Banner */}
                             <div className="rounded-2xl overflow-hidden shadow-[0_0_25px_rgba(0,255,135,0.2)] border border-white/10">
