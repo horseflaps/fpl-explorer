@@ -388,8 +388,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <h3 className="text-lg font-bold text-white">1. The "EO" Trap</h3>
                                             <div className="group relative">
                                                 <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
-                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
-                                                    <span className="text-[#02efff] font-bold block mb-1 uppercase">EO (Effective Ownership)</span>
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
+                                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                                    <span className="text-[#02efff] font-black block mb-1 uppercase tracking-wider">EO (Effective Ownership)</span>
                                                     Ownership + Captaincy weight. If a player is 100%+ EO and you don't own them, their points actively hurt your rank.
                                                 </div>
                                             </div>
@@ -400,8 +401,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             </span>
                                             <div className="group relative">
                                                 <p className="text-[10px] text-white/40 border-b border-white/10 border-dotted cursor-help">What is Risk?</p>
-                                                <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
-                                                    <span className="text-red-400 font-bold block mb-1 uppercase">RISK Level</span>
+                                                <div className="absolute top-full right-0 mt-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
+                                                    <div className="absolute -top-1 right-4 w-2 h-2 bg-slate-900/90 border-l border-t border-white/20 rotate-45"></div>
+                                                    <span className="text-red-400 font-black block mb-1 uppercase tracking-wider">RISK Level</span>
                                                     How vulnerable your current rank is to non-owned 'Template' players. High Risk means missing icons who score big could tank your position.
                                                 </div>
                                             </div>
@@ -431,8 +433,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         <h3 className="text-lg font-bold text-white">2. xGI Sustainability Check</h3>
                                         <div className="group relative">
                                             <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
-                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
-                                                <span className="text-[#00ff87] font-bold block mb-1 uppercase">xGI (Expected Goal Involvement)</span>
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90">
+                                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                                <span className="text-[#00ff87] font-black block mb-1 uppercase tracking-wider">xGI (Expected Goal Involvement)</span>
                                                 Measures quality of chances. A high xGI means a player *should* be scoring or assisting, even if they haven't yet.
                                             </div>
                                         </div>
@@ -471,8 +474,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <div className="h-px bg-white/20 flex-1"></div>
                                             <div className="group relative flex items-center gap-2">
                                                 <span className="text-xs font-bold uppercase tracking-widest text-[#02efff] border-b border-[#02efff]/30 border-dotted cursor-help">{analysisResult.verdict.strategy}</span>
-                                                <div className="absolute bottom-full right-0 mb-3 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
-                                                    <span className="text-[#02efff] font-bold block mb-1 uppercase">Strategy: {analysisResult.verdict.strategy}</span>
+                                                <div className="absolute bottom-full right-0 mb-3 w-64 p-4 bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[11px] leading-relaxed text-white/90 text-left">
+                                                    <div className="absolute -bottom-1 right-4 w-2 h-2 bg-slate-900/90 border-r border-b border-white/20 rotate-45"></div>
+                                                    <span className="text-[#02efff] font-black block mb-1 uppercase tracking-wider">Strategy: {analysisResult.verdict.strategy}</span>
                                                     The Wolf's recommended playstyle. **Protect Rank** means playing safety first; **Attack** means taking calculated punts to climb.
                                                 </div>
                                             </div>
