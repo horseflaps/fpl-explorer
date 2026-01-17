@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory } from '../services/api';
 import { analyzeTeam } from '../services/analysis';
@@ -316,6 +316,17 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                     {/* Content */}
                     <div className="p-6 md:p-8 space-y-8">
+                        {/* Glossary Hook */}
+                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                            <Info className="text-blue-400 shrink-0 mt-0.5" size={20} />
+                            <div className="space-y-1">
+                                <p className="text-blue-200 text-sm font-bold">First Time? Decode the Hunt</p>
+                                <p className="text-blue-200/60 text-xs leading-relaxed">
+                                    Hover over <HelpCircle size={12} className="inline mb-0.5" /> icons to translate FPL analytics. Learn about EO, xGI, and Strategy below.
+                                </p>
+                            </div>
+                        </div>
+
                         {/* Mode Toggle */}
                         <div className="flex justify-center mb-6">
                             <button
@@ -373,10 +384,28 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 {/* 1. EO Trap */}
                                 <section className="bg-white/5 rounded-xl p-6 border border-white/5">
                                     <div className="flex justify-between items-start mb-4">
-                                        <h3 className="text-lg font-bold text-white mb-2">1. The "EO" Trap</h3>
-                                        <span className={`px-3 py-1 rounded-full text-xs font-black ${analysisResult.eoTrap.riskLevel === 'HIGH' ? 'bg-red-500 text-white' : analysisResult.eoTrap.riskLevel === 'MEDIUM' ? 'bg-yellow-500 text-black' : 'bg-[#00ff87] text-[#37003c]'}`}>
-                                            RISK: {analysisResult.eoTrap.riskLevel}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-lg font-bold text-white">1. The "EO" Trap</h3>
+                                            <div className="group relative">
+                                                <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
+                                                    <span className="text-[#02efff] font-bold block mb-1 uppercase">EO (Effective Ownership)</span>
+                                                    Ownership + Captaincy weight. If a player is 100%+ EO and you don't own them, their points actively hurt your rank.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className={`px-3 py-1 rounded-full text-xs font-black ${analysisResult.eoTrap.riskLevel === 'HIGH' ? 'bg-red-500 text-white' : analysisResult.eoTrap.riskLevel === 'MEDIUM' ? 'bg-yellow-500 text-black' : 'bg-[#00ff87] text-[#37003c]'}`}>
+                                                RISK: {analysisResult.eoTrap.riskLevel}
+                                            </span>
+                                            <div className="group relative">
+                                                <p className="text-[10px] text-white/40 border-b border-white/10 border-dotted cursor-help">What is Risk?</p>
+                                                <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
+                                                    <span className="text-red-400 font-bold block mb-1 uppercase">RISK Level</span>
+                                                    How vulnerable your current rank is to non-owned 'Template' players. High Risk means missing icons who score big could tank your position.
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <p className="text-white/80 text-sm mb-4 italic">"{analysisResult.eoTrap.description}"</p>
                                     {analysisResult.eoTrap.players.length > 0 && (
@@ -398,7 +427,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                                 {/* 2. Sustainability */}
                                 <section className="bg-white/5 rounded-xl p-6 border border-white/5">
-                                    <h3 className="text-lg font-bold text-white mb-4">2. xGI Sustainability Check</h3>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <h3 className="text-lg font-bold text-white">2. xGI Sustainability Check</h3>
+                                        <div className="group relative">
+                                            <HelpCircle size={14} className="text-white/30 cursor-help hover:text-white transition-colors" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
+                                                <span className="text-[#00ff87] font-bold block mb-1 uppercase">xGI (Expected Goal Involvement)</span>
+                                                Measures quality of chances. A high xGI means a player *should* be scoring or assisting, even if they haven't yet.
+                                            </div>
+                                        </div>
+                                    </div>
                                     <p className="text-white/80 text-sm mb-4 italic">"{analysisResult.sustainability.description}"</p>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {analysisResult.sustainability.underperforming.length > 0 && (
@@ -431,7 +469,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         <div className="flex items-center gap-3 mb-6">
                                             <h3 className="text-2xl font-black text-white italic">THE VERDICT</h3>
                                             <div className="h-px bg-white/20 flex-1"></div>
-                                            <span className="text-xs font-bold uppercase tracking-widest text-[#02efff]">{analysisResult.verdict.strategy}</span>
+                                            <div className="group relative flex items-center gap-2">
+                                                <span className="text-xs font-bold uppercase tracking-widest text-[#02efff] border-b border-[#02efff]/30 border-dotted cursor-help">{analysisResult.verdict.strategy}</span>
+                                                <div className="absolute bottom-full right-0 mb-3 w-64 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] leading-relaxed text-white/90">
+                                                    <span className="text-[#02efff] font-bold block mb-1 uppercase">Strategy: {analysisResult.verdict.strategy}</span>
+                                                    The Wolf's recommended playstyle. **Protect Rank** means playing safety first; **Attack** means taking calculated punts to climb.
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
