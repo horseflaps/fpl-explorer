@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory } from '../services/api';
 import { analyzeTeam } from '../services/analysis';
@@ -161,36 +161,36 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         if (!player || !team) return null;
 
         return (
-            <div key={pick.element} className="flex flex-col items-center justify-center w-24 md:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px]">
+            <div key={pick.element} className="flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px]">
                 <div className={`relative mb-1 transition-transform duration-300 transform group-hover:scale-110 ${pick.is_captain || pick.is_vice_captain ? 'scale-110' : ''}`} style={{ transformStyle: 'preserve-3d' }}>
                     <img
-                        src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}-66.png`}
+                        src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}${player.element_type === 1 ? '_1' : ''}-66.png`}
                         alt={team.name}
-                        className="w-12 md:w-16 object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.3)]"
+                        className="w-10 sm:w-12 md:w-14 lg:w-16 object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.3)]"
                     />
 
                     {/* Captain/Vice-Captain Badge */}
                     {pick.is_captain && (
-                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full border border-white z-20">
+                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-black w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-20">
                             C
                         </div>
                     )}
                     {pick.is_vice_captain && (
-                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full border border-white z-20">
+                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-black w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-20">
                             V
                         </div>
                     )}
                 </div>
 
                 {/* Info Card - Styled to match reference exactly */}
-                <div className="flex flex-col w-full max-w-[90px] md:max-w-[110px] shadow-lg">
+                <div className="flex flex-col w-full max-w-[75px] sm:max-w-[90px] md:max-w-[110px] shadow-lg">
                     {/* Name Box (White) */}
                     <div className="bg-white text-slate-900 px-1 py-0.5 rounded-t-[3px] text-center w-full">
-                        <p className="text-[9px] md:text-[11px] font-black uppercase truncate leading-tight tracking-tighter">{player.web_name}</p>
+                        <p className="text-[8px] sm:text-[10px] md:text-[11px] font-black truncate leading-tight tracking-tighter">{player.web_name}</p>
                     </div>
                     {/* Points Box (Dark) */}
                     <div className="bg-[#37003c] text-white px-1 py-0.5 rounded-b-[3px] text-center w-full border-t border-slate-200/20">
-                        <p className="text-[10px] md:text-[12px] font-black leading-none">{points > 0 ? points : '-'}</p>
+                        <p className="text-[9px] sm:text-[11px] md:text-[12px] font-black leading-none">{points > 0 ? points : '-'}</p>
                     </div>
                 </div>
             </div>
@@ -213,24 +213,53 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             { title: 'Forwards', players: fwds },
         ];
 
+        const headerTooltips: Record<string, string> = {
+            Pts: "Points: Total points scored in this gameweek.",
+            MP: "Minutes Played: Total minutes on the pitch.",
+            GS: "Goals Scored: Number of goals scored.",
+            A: "Assists: Number of goal assists.",
+            CS: "Clean Sheets: Conceded 0 goals (60+ mins for DEF/GKP).",
+            GC: "Goals Conceded: Goals conceded while on pitch.",
+            OG: "Own Goals: Goals scored into own net.",
+            PS: "Penalties Saved: Penalties stopped by the GKP.",
+            PM: "Penalties Missed: Penalties missed by the player.",
+            YC: "Yellow Cards: Yellow cards received.",
+            RC: "Red Cards: Red cards received.",
+            S: "Saves: Total saves made by the GKP.",
+            B: "Bonus: Bonus points awarded (BPS)."
+        };
+
+        const renderHeader = (label: string) => {
+            const tooltip = headerTooltips[label];
+            return (
+                <div className="group relative flex justify-center cursor-help">
+                    <span className="border-b border-white/10 border-dotted transition-colors group-hover:border-white/40 group-hover:text-white leading-none pb-0.5">{label}</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-40 p-3 bg-slate-900 border border-white/20 rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 animate-in fade-in zoom-in-95 z-50 text-[10px] leading-snug text-white/90 font-medium normal-case text-center">
+                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
+                        {tooltip}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="max-w-4xl mx-auto px-4 md:px-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {/* Table Header */}
-                <div className="grid grid-cols-[3fr,repeat(13,1fr)] gap-0 text-center text-[10px] md:text-sm text-white/60 font-bold border-b border-white/10 pb-2 mb-4">
+                <div className="grid grid-cols-[3fr,repeat(13,1fr)] gap-0 text-center text-[10px] md:text-xs text-white/40 font-black uppercase border-b border-white/10 pb-2 mb-4">
                     <div className="text-left pl-2">Player</div>
-                    <div title="Points">Pts</div>
-                    <div title="Minutes Played">MP</div>
-                    <div title="Goals Scored">GS</div>
-                    <div title="Assists">A</div>
-                    <div title="Clean Sheets">CS</div>
-                    <div title="Goals Conceded">GC</div>
-                    <div title="Own Goals">OG</div>
-                    <div title="Penalties Saved">PS</div>
-                    <div title="Penalties Missed">PM</div>
-                    <div title="Yellow Cards">YC</div>
-                    <div title="Red Cards">RC</div>
-                    <div title="Saves">S</div>
-                    <div title="Bonus">B</div>
+                    <div>{renderHeader('Pts')}</div>
+                    <div>{renderHeader('MP')}</div>
+                    <div>{renderHeader('GS')}</div>
+                    <div>{renderHeader('A')}</div>
+                    <div>{renderHeader('CS')}</div>
+                    <div>{renderHeader('GC')}</div>
+                    <div>{renderHeader('OG')}</div>
+                    <div>{renderHeader('PS')}</div>
+                    <div>{renderHeader('PM')}</div>
+                    <div>{renderHeader('YC')}</div>
+                    <div>{renderHeader('RC')}</div>
+                    <div>{renderHeader('S')}</div>
+                    <div>{renderHeader('B')}</div>
                 </div>
 
                 {groups.map((group) => (
@@ -535,217 +564,155 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const rank = picksData?.entry_history.rank ?? 0;
 
     return (
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-            {/* Gameweek Nav & View Toggle */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/10 mb-6">
-                <div className="flex items-center gap-4 order-2 md:order-1">
-                    <button
-                        onClick={handlePrevGw}
-                        disabled={loading || selectedGw <= 1}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {'<'}
-                    </button>
-                    <div className="text-center min-w-[120px]">
-                        <h3 className="text-xl font-bold">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
-                        <span className="text-[10px] text-[#00ff87] font-bold uppercase tracking-widest">Selected Event</span>
-                    </div>
-                    <button
-                        onClick={handleNextGw}
-                        disabled={loading || selectedGw >= 38}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#581c5e] hover:bg-[#6a2570] transition-colors text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {'>'}
-                    </button>
-                </div>
-
-                <div className="flex bg-[#37003c] rounded-lg p-1 gap-1 order-1 md:order-2">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4">
+            {/* Top Row: Team Name & View Toggle */}
+            <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 px-4 md:px-0">
+                <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
+                <div className="flex bg-[#37003c]/50 backdrop-blur-sm rounded-lg p-1 gap-1 border border-white/10 shrink-0">
                     <button
                         onClick={() => setView('pitch')}
-                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all flex items-center gap-2 ${view === 'pitch' ? 'bg-[#00ff87] text-[#37003c]' : 'text-white/60 hover:text-white'}`}
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'pitch' ? 'bg-[#37003c] text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
                     >
                         Pitch View
                     </button>
                     <button
                         onClick={() => setView('list')}
-                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all flex items-center gap-2 ${view === 'list' ? 'bg-[#00ff87] text-[#37003c]' : 'text-white/60 hover:text-white'}`}
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'list' ? 'bg-[#37003c] text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
                     >
                         List View
                     </button>
                 </div>
             </div>
 
-            {/* Stats Grid & Team Info */}
-            <div className="max-w-4xl mx-auto space-y-8">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                    {/* Left Side: Team Name */}
-                    <div className="flex-1 text-center md:text-right">
-                        <h2 className="text-xl md:text-3xl font-black text-white tracking-tighter uppercase leading-tight line-clamp-2">{entryData?.name || 'My Team'}</h2>
-                        <div className="h-1 w-12 bg-[#00ff87] ml-auto mt-2 hidden md:block"></div>
-                    </div>
+            {/* Gameweek Nav Row */}
+            <div className="max-w-4xl mx-auto flex items-center justify-center gap-6">
+                <button
+                    onClick={handlePrevGw}
+                    disabled={loading || selectedGw <= 1}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
+                >
+                    <ChevronLeft size={16} />
+                </button>
+                <h3 className="text-2xl font-black text-white italic tracking-tight">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
+                <button
+                    onClick={handleNextGw}
+                    disabled={loading || selectedGw >= 38}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
+                >
+                    <ChevronRight size={16} />
+                </button>
+            </div>
 
-                    {/* Center: Points Diamond */}
-                    <div className="relative group shrink-0">
-                        <div className="bg-gradient-to-b from-[#00ff87] to-[#02efff] text-slate-900 rounded-2xl p-6 md:p-8 shadow-[0_0_50px_rgba(0,255,135,0.3)] transition-all transform hover:scale-105 group-hover:shadow-[0_0_70px_rgba(2,239,255,0.4)]">
-                            <span className={`block text-5xl md:text-7xl font-black tracking-tighter leading-none text-center ${loading ? 'opacity-50 blur-sm' : ''}`}>{activePoints}</span>
-                            <span className="block text-[10px] md:text-xs font-black uppercase tracking-[0.2em] mt-2 text-center">Total Points</span>
-                        </div>
-                    </div>
-
-                    {/* Right Side: Manager Name */}
-                    <div className="flex-1 text-center md:text-left">
-                        {entryData && (
-                            <>
-                                <p className="text-white/40 text-[10px] uppercase tracking-widest font-black mb-1">Director of Football</p>
-                                <h3 className="text-lg md:text-2xl font-bold text-white tracking-tight">{entryData.player_first_name} {entryData.player_last_name}</h3>
-                            </>
-                        )}
-                        <div className="h-1 w-12 bg-[#02efff] mt-2 hidden md:block"></div>
+            {/* Unified Stats Dashboard */}
+            <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-y-6 gap-x-2 md:gap-4 items-end px-2 md:px-0">
+                {/* Main Points Card - Spans 2 columns on mobile */}
+                <div className="col-span-2 md:col-span-1 md:order-3 relative group perspective-1000 mb-2 md:mb-0">
+                    <div className="bg-gradient-to-b from-[#02efff] to-[#00ff87] text-slate-900 rounded-2xl p-6 shadow-2xl transform transition-transform group-hover:scale-105">
+                        <span className={`block text-6xl font-black tracking-tighter leading-none text-center ${loading ? 'opacity-50 blur-sm' : ''}`}>{activePoints}</span>
+                        <span className="block text-[10px] font-black uppercase tracking-widest mt-2 text-center opacity-70">Total Points</span>
                     </div>
                 </div>
 
-                {/* Sub Stats Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 bg-white/5 p-6 rounded-2xl border border-white/10 backdrop-blur-sm">
-                    <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Average</span>
-                        <span className="text-xl font-black text-white">{data.events.find(e => e.id === selectedGw)?.average_entry_score || '-'}</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Highest</span>
-                        <span className="text-xl font-black text-[#00ff87]">{data.events.find(e => e.id === selectedGw)?.highest_score || '-'}</span>
-                    </div>
-                    <div className="flex flex-col items-center border-t md:border-t-0 pt-4 md:pt-0 border-white/10">
-                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">GW Rank</span>
-                        <span className="text-xl font-black text-white">{rank?.toLocaleString() || '-'}</span>
-                    </div>
-                    <div className="flex flex-col items-center border-t md:border-t-0 pt-4 md:pt-0 border-white/10">
-                        <span className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Transfers</span>
-                        <span className="text-xl font-black text-[#02efff]">{picksData?.entry_history.event_transfers || 0}</span>
-                    </div>
+                <div className="flex flex-col items-center md:order-1">
+                    <span className="text-2xl md:text-3xl font-black text-white">{data.events.find(e => e.id === selectedGw)?.average_entry_score || '-'}</span>
+                    <span className="text-[9px] md:text-[10px] font-bold text-white/40 uppercase tracking-wider text-center">Average Points</span>
+                </div>
+                <div className="flex flex-col items-center md:order-2">
+                    <span className="text-2xl md:text-3xl font-black text-white">{data.events.find(e => e.id === selectedGw)?.highest_score || '-'}</span>
+                    <span className="text-[9px] md:text-[10px] font-bold text-white/40 uppercase tracking-wider text-center flex items-center gap-1">Highest Points <span className="text-[8px]">→</span></span>
+                </div>
+
+                <div className="flex flex-col items-center md:order-4">
+                    <span className="text-lg md:text-3xl font-black text-white tracking-tighter">{rank?.toLocaleString() || '-'}</span>
+                    <span className="text-[9px] md:text-[10px] font-bold text-white/40 uppercase tracking-wider text-center">GW Rank</span>
+                </div>
+                <div className="flex flex-col items-center md:order-5">
+                    <span className="text-2xl md:text-3xl font-black text-white">{picksData?.entry_history.event_transfers || 0}</span>
+                    <span className="text-[9px] md:text-[10px] font-bold text-white/40 uppercase tracking-wider text-center flex items-center gap-1">Transfers <span className="text-[8px]">→</span></span>
                 </div>
             </div>
 
-            {/* AI Diagnosis CTA - Prominent Headline Feature */}
-            <div className="max-w-4xl mx-auto px-4 md:px-0 pt-4">
+            {/* TOTW Link */}
+            <div className="max-w-4xl mx-auto text-center -mt-2">
+                <span className="text-[10px] font-bold text-[#00ff87] uppercase tracking-widest cursor-pointer hover:underline flex items-center justify-center gap-2">
+                    <Sparkles size={10} /> Team of the Week →
+                </span>
+            </div>
+
+            {/* AI Diagnosis CTA - Floating below stats */}
+            <div className="max-w-4xl mx-auto px-4 md:px-0">
                 <button
                     onClick={handleAnalyze}
-                    className="w-full relative group overflow-hidden rounded-2xl p-6 bg-gradient-to-r from-[#37003c] to-[#4d0c54] border border-white/10 transition-all hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(0,255,135,0.15)] active:scale-[0.99] shadow-2xl"
+                    className="w-full relative group overflow-hidden rounded-2xl p-4 md:p-6 bg-gradient-to-r from-[#37003c] to-[#4d0c54] border border-white/10 transition-all hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(0,255,135,0.15)] active:scale-[0.99] shadow-2xl"
                 >
-                    {/* Pulsating background decoration */}
                     <div className="absolute inset-0 bg-[#00ff87]/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-[#02efff]/5 rounded-full blur-3xl -mr-32 -mt-32"></div>
-
-                    <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
-                        <div className="flex items-center gap-6">
-                            <div className="w-16 h-16 rounded-2xl bg-[#37003c] flex items-center justify-center border border-white/20 shadow-xl group-hover:border-[#00ff87]/50 transition-all group-hover:shadow-[0_0_20px_rgba(0,255,135,0.3)]">
-                                <Activity className="w-8 h-8 text-[#00ff87] animate-pulse" />
+                    <div className="relative flex items-center justify-between gap-4 md:gap-6">
+                        <div className="flex items-center gap-4 md:gap-6">
+                            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl bg-[#37003c] flex items-center justify-center border border-white/20 shadow-xl group-hover:border-[#00ff87]/50 transition-all shrink-0">
+                                <Activity className="w-6 h-6 md:w-8 md:h-8 text-[#00ff87] animate-pulse" />
                             </div>
                             <div className="text-left">
-                                <h3 className="text-2xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 group-hover:text-[#00ff87] transition-colors">
+                                <h3 className="text-lg md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 group-hover:text-[#00ff87] transition-colors">
                                     The Wolf's Diagnosis
                                 </h3>
-                                <p className="text-white/60 text-xs font-bold uppercase tracking-[0.2em]">Alpha Strategy Analysis mode</p>
+                                <p className="text-[10px] md:text-xs text-white/60 font-bold uppercase tracking-[0.1em] md:tracking-[0.2em]">Alpha Strategy Analysis mode</p>
                             </div>
                         </div>
-
-                        <div className="flex items-center gap-4">
-                            <div className="hidden md:block h-12 w-px bg-white/10"></div>
-                            <div className="px-6 py-3 bg-[#00ff87] text-[#37003c] font-black rounded-lg text-sm uppercase flex items-center gap-2 group-hover:bg-[#02efff] transition-all group-hover:translate-x-1 group-hover:shadow-[0_0_15px_rgba(2,239,255,0.4)]">
-                                Get Analysis
-                                <Sparkles size={16} />
-                            </div>
+                        <div className="hidden md:flex px-6 py-3 bg-[#00ff87] text-[#37003c] font-black rounded-lg text-sm uppercase items-center gap-2 group-hover:bg-[#02efff] transition-all">
+                            Get Analysis <Sparkles size={16} />
                         </div>
                     </div>
                 </button>
             </div>
+
             {/* View Switching */}
-            {view === 'list' ? renderListView() : (
-                /* Pitch Section */
-                <div className="relative -mt-4 px-2 md:px-0">
-                    <div className="perspective-[1000px] flex justify-center overflow-hidden pb-8">
-                        <div
-                            className="relative w-full max-w-[550px] aspect-[9/14] bg-[#00b53f] rounded-t-xl shadow-2xl [transform:rotateX(30deg)] border-x-[12px] border-t-[12px] border-[#04f5ff]/10 box-border mx-auto ring-1 ring-white/10"
-                            style={{ transformStyle: 'preserve-3d' }}
-                        >
-                            {/* Fantasy Banners Header */}
-                            <div className="absolute top-0 left-0 right-0 h-14 bg-gradient-to-b from-[#02efff] to-[#37003c] flex justify-between items-center px-4 md:px-8 z-10 rounded-t-lg">
-                                <div className="text-[#37003c] font-black text-lg tracking-tighter flex items-center gap-1">
-                                    <span className="bg-[#37003c] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">🦁</span>
-                                    Fantasy
-                                </div>
-                                <div className="text-[#37003c] font-black text-lg tracking-tighter flex items-center gap-1">
-                                    <span className="bg-[#37003c] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">🦁</span>
-                                    Fantasy
-                                </div>
-                            </div>
+            {view === 'list' ? (
+                <div className="pt-4">{renderListView()}</div>
+            ) : (
+                <>
+                    {/* Pitch Section */}
+                    <div className="flex justify-center pb-4 px-4 overflow-hidden">
+                        <div className="relative w-full max-w-[960px] mx-auto shadow-2xl min-h-[580px] md:min-h-0 aspect-[1417/788] md:aspect-auto">
+                            {/* The Image - Absolute on mobile to fill min-height, relative on desktop */}
+                            <img
+                                src="/pitch.png"
+                                className="absolute md:relative inset-0 w-full h-full md:h-auto object-cover md:object-contain block rounded-[10px]"
+                                alt="Football Pitch"
+                            />
 
-                            {/* Pitch Surface (Green) */}
-                            <div className="absolute inset-0 bg-[#00b53f] pointer-events-none">
-                                {/* Grass Pattern */}
-                                <div className="absolute inset-x-0 bottom-0 top-14 bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.05)_0px,rgba(0,0,0,0.05)_40px,transparent_40px,transparent_80px)] opacity-50"></div>
-                                <div className="absolute inset-x-0 bottom-0 top-14 bg-gradient-to-b from-black/20 via-transparent to-transparent"></div>
-                            </div>
-
-                            {/* Pitch Markings Layer */}
-                            <div className="absolute inset-x-0 bottom-0 top-14 pointer-events-none opacity-90 mix-blend-overlay" style={{ transform: 'translateZ(0)' }}>
-                                {/* Outer Border */}
-                                <div className="absolute inset-4 md:inset-6 border-2 border-white/80"></div>
-
-                                {/* Corner Arcs */}
-                                <div className="absolute top-4 left-4 md:top-6 md:left-6 w-8 h-8 md:w-16 md:h-16 border-b-2 border-r-2 border-white/80 rounded-br-full"></div>
-                                <div className="absolute top-4 right-4 md:top-6 md:right-6 w-8 h-8 md:w-16 md:h-16 border-b-2 border-l-2 border-white/80 rounded-bl-full"></div>
-                                <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 w-8 h-8 md:w-16 md:h-16 border-t-2 border-r-2 border-white/80 rounded-tr-full"></div>
-                                <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 w-8 h-8 md:w-16 md:h-16 border-t-2 border-l-2 border-white/80 rounded-tl-full"></div>
-
-                                {/* Halfway Line */}
-                                <div className="absolute top-1/2 left-4 right-4 md:left-6 md:right-6 h-0.5 bg-white/80 -translate-y-1/2"></div>
-                                <div className="absolute top-1/2 left-1/2 w-32 h-32 md:w-40 md:h-40 border-2 border-white/80 rounded-full -translate-x-1/2 -translate-y-1/2"></div>
-                                <div className="absolute top-1/2 left-1/2 w-2 h-2 bg-white/80 rounded-full -translate-x-1/2 -translate-y-1/2"></div>
-
-                                {/* Top Goal Area (GKP) */}
-                                <div className="absolute top-4 md:top-6 left-1/2 w-[50%] h-[15%] border-b-2 border-x-2 border-white/80 -translate-x-1/2"></div>
-                                <div className="absolute top-4 md:top-6 left-1/2 w-[22%] h-[6%] border-b-2 border-x-2 border-white/80 -translate-x-1/2 bg-white/10"></div>
-                                <div className="absolute top-[calc(15%+24px)] left-1/2 w-[20%] h-[5%] border-b-2 border-x-2 border-white/40 rounded-full -translate-x-1/2"></div>
-
-                                {/* Bottom Goal Area (FWD) */}
-                                <div className="absolute bottom-4 md:bottom-6 left-1/2 w-[50%] h-[15%] border-t-2 border-x-2 border-white/80 -translate-x-1/2"></div>
-                                <div className="absolute bottom-4 md:bottom-6 left-1/2 w-[22%] h-[6%] border-t-2 border-x-2 border-white/80 -translate-x-1/2 bg-white/10"></div>
-                                <div className="absolute bottom-[calc(15%+24px)] left-1/2 w-[20%] h-[5%] border-t-2 border-x-2 border-white/40 rounded-full -translate-x-1/2"></div>
-                            </div>
-
-                            {/* Players Layer */}
-                            <div className="absolute inset-x-0 bottom-0 top-14 py-6 md:py-8 flex flex-col justify-between z-10" style={{ transformStyle: 'preserve-3d' }}>
-                                {/* GKP */}
-                                <div className="flex justify-center perspective-[500px]">
+                            {/* Players Layer - Absolute Row Positioning for precision on landscape pitch */}
+                            <div className="absolute inset-0 z-10">
+                                {/* GKP Row */}
+                                <div className="absolute top-[4%] md:top-[6%] left-0 right-0 flex justify-center">
                                     {gkp.map((p) => (
-                                        <div key={p.element} className="[transform:translateZ(20px)_rotateX(-30deg)] transition-transform hover:[transform:translateZ(40px)_rotateX(-30deg)_scale(1.1)] duration-300">
+                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
                                             {renderPlayer(p)}
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* DEF */}
-                                <div className="flex justify-center gap-4 md:gap-8 perspective-[500px]">
+                                {/* DEF Row */}
+                                <div className="absolute top-[26%] md:top-[32%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
                                     {def.map((p) => (
-                                        <div key={p.element} className="[transform:translateZ(20px)_rotateX(-30deg)] transition-transform hover:[transform:translateZ(40px)_rotateX(-30deg)_scale(1.1)] duration-300">
+                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
                                             {renderPlayer(p)}
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* MID */}
-                                <div className="flex justify-center gap-4 md:gap-8 perspective-[500px]">
+                                {/* MID Row */}
+                                <div className="absolute top-[48%] md:top-[58%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
                                     {mid.map((p) => (
-                                        <div key={p.element} className="[transform:translateZ(20px)_rotateX(-30deg)] transition-transform hover:[transform:translateZ(40px)_rotateX(-30deg)_scale(1.1)] duration-300">
+                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
                                             {renderPlayer(p)}
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* FWD */}
-                                <div className="flex justify-center gap-4 md:gap-8 perspective-[500px]">
+                                {/* FWD Row */}
+                                <div className="absolute top-[72%] md:top-[83%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
                                     {fwd.map((p) => (
-                                        <div key={p.element} className="[transform:translateZ(20px)_rotateX(-30deg)] transition-transform hover:[transform:translateZ(40px)_rotateX(-30deg)_scale(1.1)] duration-300">
+                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
                                             {renderPlayer(p)}
                                         </div>
                                     ))}
@@ -754,27 +721,29 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         </div>
                     </div>
 
-                    {/* Bench Container - Floating 'glass' look over bottom pitch edge */}
-                    <div className="relative -mt-24 max-w-2xl mx-auto z-30">
-                        <div className="bg-gradient-to-b from-[#37003c]/90 to-[#220025]/95 backdrop-blur-md rounded-t-xl p-4 border-t border-white/20 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-                            <div className="flex justify-center items-center gap-4 mb-3">
-                                <div className="h-px bg-white/20 flex-1"></div>
-                                <h3 className="text-[10px] uppercase text-white/70 font-black tracking-[0.2em]">Substitutes</h3>
-                                <div className="h-px bg-white/20 flex-1"></div>
+                    {/* Bench Section - Floating look */}
+                    <div className="relative -mt-4 md:-mt-8 max-w-2xl mx-auto z-30 px-2 md:px-4">
+                        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-[20px] p-3 md:p-6 border border-white/20 shadow-2xl">
+                            <div className="flex justify-center gap-1 md:gap-8 mb-4">
+                                {bench.map((p, i) => {
+                                    const player = getPlayer(p.element);
+                                    const typeLabel = player?.element_type === 1 ? 'GKP' : player?.element_type === 2 ? 'DEF' : player?.element_type === 3 ? 'MID' : 'FWD';
+                                    return (
+                                        <div key={p.element} className="relative group">
+                                            <span className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 text-[8px] md:text-[10px] text-white/40 font-black tracking-widest uppercase whitespace-nowrap">
+                                                {i === 0 ? 'GKP' : `${i}. ${typeLabel}`}
+                                            </span>
+                                            {renderPlayer(p)}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <div className="flex justify-center gap-3 md:gap-6">
-                                {bench.map((p, i) => (
-                                    <div key={p.element} className="relative group">
-                                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-white/50 font-bold tracking-widest uppercase">
-                                            {i === 0 ? 'GKP' : `${i}.`}
-                                        </span>
-                                        {renderPlayer(p)}
-                                    </div>
-                                ))}
+                            <div className="text-center pt-1 md:pt-2">
+                                <h3 className="text-lg md:text-xl font-black text-white italic tracking-widest uppercase">Substitutes</h3>
                             </div>
                         </div>
                     </div>
-                </div>
+                </>
             )}
 
             {/* Analysis Modal */}
