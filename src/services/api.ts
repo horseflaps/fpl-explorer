@@ -135,6 +135,20 @@ export const fetchEntryHistory = async (entryId: number): Promise<any> => {
     }
 };
 
+export const fetchEntryTransfers = async (entryId: number): Promise<any[]> => {
+    try {
+        const response = await fetch(`/api/entry/${entryId}/transfers/`);
+        if (!response.ok) {
+            throw new Error(`Error fetching entry transfers: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch entry transfers:", error);
+        throw error;
+    }
+};
+
 export const searchTeamsByName = async (query: string): Promise<any[]> => {
     try {
         const response = await fetch(`/api/team-search?q=${encodeURIComponent(query)}`);

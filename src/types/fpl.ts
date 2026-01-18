@@ -80,6 +80,8 @@ export interface Player {
     ict_index: string;
     expected_goals: string;
     expected_assists: string;
+    transfers_in_event: number;
+    transfers_out_event: number;
     photo: string;
     news: string;
     status: string;

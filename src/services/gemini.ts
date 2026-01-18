@@ -16,22 +16,37 @@ export const generateGeminiPrompt = (
         return player && team ? {
             name: player.web_name,
             team: team.short_name,
-            position: ['?', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type], // element_type is 1-based
+            position: ['?', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type],
             cost: player.now_cost / 10,
             form: player.form,
             xG: player.expected_goals,
             xA: player.expected_assists,
-            fixtures: 'Check fixture difficulty', // Simplified for prompt size
-            ownership: player.selected_by_percent
+            ownership: player.selected_by_percent,
+            sentiment: `In: ${player.transfers_in_event.toLocaleString()} | Out: ${player.transfers_out_event.toLocaleString()}`
         } : null;
     }).filter(Boolean);
 
     const bank = entry.last_deadline_bank / 10;
     const currentGw = picks.entry_history.event;
 
+    // Get Top Market Targets (to help AI know prices and trends)
+    const topMarketTargets = data.elements
+        .filter(p => {
+            const isMyPlayer = picks.picks.some(pick => pick.element === p.id);
+            return !isMyPlayer && p.status !== 'u' && p.status !== 'i';
+        })
+        .sort((a, b) => parseFloat(b.ep_next) - parseFloat(a.ep_next))
+        .slice(0, 15)
+        .map(p => ({
+            name: p.web_name,
+            team: getTeam(p.team)?.short_name || '?',
+            pos: ['?', 'GKP', 'DEF', 'MID', 'FWD'][p.element_type],
+            cost: p.now_cost / 10,
+            ep_next: p.ep_next,
+            sentiment: `+${p.transfers_in_event.toLocaleString()} this GW`
+        }));
+
     // Estimate Free Transfers (FT)
-    // Basic logic: If no transfers last week, we likely have 2. 
-    // If Wildcard/Free Hit used this week, FT is infinite/reset.
     let estimatedFT = 1;
     if (history && history.current) {
         const prevGwIndex = history.current.findIndex((h: any) => h.event === currentGw) - 1;
@@ -39,67 +54,61 @@ export const generateGeminiPrompt = (
             const prevGw = history.current[prevGwIndex];
             if (prevGw.event_transfers === 0) {
                 estimatedFT = 2;
+                // Since FPL 2024/25 allows rolling up to 5 FTs, we'll keep it simple for now
             }
         }
     }
 
-    // Account for transfers ALREADY made this week
     const transfersMadeThisWeek = picks.entry_history.event_transfers || 0;
     const netFT = Math.max(0, estimatedFT - transfersMadeThisWeek);
-
-    // Check Chips
     const chipsUsed = history?.chips?.map((c: any) => c.name).join(', ') || 'None';
 
     return `
-    You are the **Fantasy Premier Wolf**. 
-    You are an elite, aggressive FPL strategist who doesn't suffer fools gladly. 
-    Analyze this team for GW${currentGw}. Be direct, confident, and bantery.
+    You are the **Fantasy Premier Wolf**, an elite, aggressive FPL strategist. 
+    Analyze this team for GW${currentGw}. Be direct, confident, and slightly sarcastic/bantery.
 
     **TEAM DATA:**
     ${JSON.stringify(myPlayers, null, 2)}
-    Bank: £${bank}m
-    Available Free Transfers: ${netFT} (Estimated based on history)
-    Transfers already made this Gameweek: ${transfersMadeThisWeek}
+    
+    **FINANCES:**
+    - Current Bank: £${bank}m
+    - Available Free Transfers: ${netFT}
+    - Chips Played: ${chipsUsed}
 
-    **CONTEXT:**
-    - Chips already played this season: ${chipsUsed}
-    - Current Chip Active: ${picks.active_chip || 'None'}
-    - **CRITICAL RULE:** Maximum of 3 players from any single Premier League team. Do not suggest transfers that violate this.
+    **MARKET DATA (Top Buy Targets & Trends):**
+    ${JSON.stringify(topMarketTargets, null, 2)}
+
+    **CRITICAL RULES:**
+    1. **Strict Budget**: Any suggested transfer MUST be affordable. [New Player Cost] <= [Sold Player Cost] + [Current Bank].
+    2. **Market Sentiment & Template Awareness**:
+       - If a player is "Template Essential" (Ownership > 30% AND positive sentiment), do NOT suggest selling them unless they have a severe red injury flag or are suspended. 
+       - If you MUST suggest selling a highly-owned player, you must provide a "Meta-Defying" justification.
+    3. **Zero Hallucination**: If you suggest a player NOT in the MARKET DATA, assume they are premium (£8.0m+) unless certain.
 
     **OUTPUT FORMAT (Verified Markdown):**
     
     ## 🚨 TL;DR: Immediate Action
-    (Specific Advice: "Transfer OUT [Player] for [Player] immediately.")
+    (Be specific: "Sell [Out] for [In]. Reasons: [Summary].")
     
-    **Top Targets to BUY (Form/Stats Best):**
-    1.  [Player Name] (Team) - £Price - Reason
-    2.  [Player Name] (Team) - £Price - Reason
+    **Top Targets to BUY (Affordable Options):**
+    1. [Player] (Team) - £Price - Sentiment: [Trending Up/Down] - Why he fits.
+    2. [Player] (Team) - £Price - Sentiment: [Trending Up/Down] - Why he fits.
 
-    ## 1. Chip Strategy
-    - **Usage Advice:** Should I use a chip this week if one is available?
-    - **Contingency:** IF I have a Wildcard/Free Hit, here is a recommended "Ideal Team" draft for this week:
-      (List GKP, DEF, MID, FWD core if applicable).
+    ## 1. Issues & Fixes
+    | Player | Issue | Fix | Priority | Cost Check | Sentiment Check |
+    |---|---|---|---|---|---|
+    | ... | ... | ... | ... | Affordable? | Essential? |
 
-    ## 2. Issues & Fixes
-    (Use a table. COLUMNS: Player, Issue, Recommended Fix, Priority).
-    | Player | Issue | Fix | Priority |
-    |---|---|---|---|
-    | ... | ... | ... | ... |
-    | ... | ... | ... | ... |
+    ## 2. Captaincy & Strategy
+    - Captain: [Name] ([Reason])
+    - Strategy: [Attack/Defend Rank] (Acknowledge if you're going against the FPL meta).
 
-    ## 3. Captaincy
-    (Top pick + Risk level).
-
-    Keep it concise. No fluff. Use tables for data. Make it slightly sarcastic, and in the style of friendly banter between good friends.
+    Keep it concise. Use tables. Be a friend who knows that keeping Gabriel is a no-brainer right now.
     `;
 };
 
 export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1000): Promise<string> => {
-    // 1. Check for Local Development Key
     const localKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-    // If we have a local key, call Google directly (useful for npm run dev)
-    // Otherwise, use the secure production proxy
     const isLocal = !!localKey;
     const url = isLocal
         ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${localKey}`
@@ -118,7 +127,6 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
 
         if (!response.ok) {
             const status = response.status;
-            // Retry on 503 (Service Unavailable) or 429 (Too Many Requests - if strictly temporary)
             if ((status === 503 || status === 429) && retries > 0) {
                 console.warn(`Gemini Proxy overloaded (${status}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
@@ -126,17 +134,11 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
             }
 
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
-            console.error("Gemini Proxy Error Details:", errorData);
-
-            // Extracts message from Google API format { error: { message: "..." } } 
-            // or Proxy format { error: "...", details: "..." }
             const message = errorData.error?.message || errorData.details || errorData.error || response.statusText;
             throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
         }
 
         const data = await response.json();
-
-        // Handle both direct Google response (local) and Proxy response (prod)
         if (isLocal) {
             return data.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis generated.";
         }
