@@ -228,22 +228,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setGhostPlayerIds(prev => [...prev, pick.element]);
         const player = getPlayer(pick.element);
         if (player) {
-            // If strictly swapping like-for-like, we might want to filter. 
-            // But user might want to change formation. 
-            // For now, let's open picker with NO filter to allow flexibility,
-            // or perhaps filter if only 1 ghost exists?
-            // User request: "select 2 players to replace... placed into same positions ie defence for defence"
-            // So we should probably NOT pre-filter heavily if multiple slots are open.
-
             setPickerSearch('');
             setPickerTeamFilter(null);
-            // Only set position filter if it is the FIRST/ONLY removal to guide the user?
-            // Or maybe just don't filter position at all to allow formation changes?
-            // "search by team id isnt working" -> handled by crash fix.
-            // Let's reset position filter to allow freedom, the smart replace will handle placement.
             setPickerPositionFilter(null);
             setShowPlayerPicker(true);
         }
+    };
+
+
+
+    const handleRestorePlayer = (pick: Pick) => {
+        setGhostPlayerIds(prev => prev.filter(id => id !== pick.element));
+        setShowPlayerPicker(false); // Close sidebar when restoring
     };
 
     const handleSelectPlayer = (player: any) => {
@@ -314,13 +310,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         }).sort((a, b) => b.total_points - a.total_points); // Sort by points by default
 
         return (
-            <div className="fixed top-0 right-0 h-full w-80 bg-[#220025] border-l border-white/10 shadow-2xl z-[100] flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="absolute -right-[340px] top-0 bottom-0 w-80 h-full bg-[#220025] border-l border-white/10 shadow-2xl z-[100] flex flex-col animate-in slide-in-from-right duration-300 rounded-xl overflow-hidden">
                 <div className="p-4 border-b border-white/10 bg-[#37003c]">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-white font-bold uppercase tracking-wider">Select Player</h3>
                         <div className="flex items-center gap-2">
                             {ghostPlayerIds.length > 0 && <span className="text-xs text-[#00ff87] font-bold">{ghostPlayerIds.length} Slot{ghostPlayerIds.length > 1 ? 's' : ''} Open</span>}
-                            <button onClick={() => { setShowPlayerPicker(false); setGhostPlayerIds([]); }} className="text-white/50 hover:text-white">
+                            <button onClick={() => { setShowPlayerPicker(false); }} className="text-white/50 hover:text-white">
                                 <X size={20} />
                             </button>
                         </div>
@@ -427,14 +423,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         return (
             <div
                 key={pick.element}
-                className={`flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px] relative ${isGhost ? 'opacity-30 grayscale scale-90 blur-[1px]' : ''}`}
+                className={`flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px] relative transition-all ${isGhost ? 'z-10' : 'z-20 hover:z-[60]'}`}
                 onClick={() => {
                     if (isEditingTeam && isGhost) handleRemovePlayer(pick); // Click ghost to re-open picker 
-                    // Verify: clicking ghost adds ITSELF to ghost list? No, it's already there.
-                    // If it is a ghost, it means it's in the list.
-                    // If user clicks a ghost, maybe they want to focus filling THAT specific one?
-                    // Currently handleRemove pushes to list.
-                    // If we click a ghost, we probably just want to EnsurePickerOpen.
                     if (isEditingTeam && isGhost && !showPlayerPicker) {
                         setShowPlayerPicker(true);
                     }
@@ -444,63 +435,85 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 {showRemove && (
                     <button
                         onClick={(e) => { e.stopPropagation(); handleRemovePlayer(pick); }}
-                        className="absolute -top-1 -right-1 z-50 bg-red-500 text-white rounded-full p-1 md:p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 scale-0 group-hover:scale-100 duration-200"
+                        className="absolute -top-2 -right-2 z-[100] bg-red-500 text-white rounded-full p-1.5 md:p-2 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 scale-0 group-hover:scale-100 duration-200"
                     >
                         <X size={10} />
                     </button>
                 )}
 
-                {/* Click Ghost Icon (Edit Mode) */}
-                {isGhost && (
-                    <div className="absolute inset-0 z-40 flex items-center justify-center cursor-pointer pointer-events-none">
-                        {/* Magnifying glass removed as requested */}
-                    </div>
+                {/* Restore Button (Ghost Mode) */}
+                {isEditingTeam && isGhost && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleRestorePlayer(pick); }}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-blue-500 text-white rounded-full p-2 hover:bg-blue-400 transition-colors shadow-lg animate-in zoom-in"
+                        title="Restore Player"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    </button>
                 )}
 
-                <div className={`relative mb-1 transition-transform duration-300 transform ${(!isEditingTeam || !isGhost) ? 'group-hover:scale-110' : ''} ${pick.is_captain || pick.is_vice_captain ? 'scale-110' : ''} z-20`} style={{ transformStyle: 'preserve-3d' }}>
-                    <img
-                        src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}${player.element_type === 1 ? '_1' : ''}-66.png`}
-                        alt={team.name}
-                        className="w-10 sm:w-12 md:w-14 lg:w-16 object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.3)] relative z-10"
-                    />
+                {/* Restore Button (Ghost Mode) */}
+                {isEditingTeam && isGhost && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleRestorePlayer(pick); }}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-blue-500 text-white rounded-full p-2 hover:bg-blue-400 transition-colors shadow-lg animate-in zoom-in"
+                        title="Restore Player"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                    </button>
+                )}
 
-                    {isNew && !isEditingTeam && (
-                        <div className="absolute -top-1 -left-2 bg-[#00ff87] text-[#37003c] text-[8px] md:text-[9px] font-black px-1.5 py-0.5 rounded-sm shadow-lg z-30 animate-bounce">
-                            NEW
-                        </div>
-                    )}
-                    {isOut && !isEditingTeam && (
-                        <div className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] md:text-[9px] font-black px-1.5 py-0.5 rounded-sm shadow-lg z-30 opacity-80">
-                            OUT
-                        </div>
-                    )}
+                {/* Player Content Wrapper - Applies Ghost Styles */}
+                <div className={`flex flex-col items-center w-full transition-all duration-300 ${isGhost ? 'opacity-40 grayscale blur-[1px] scale-95' : 'group-hover:scale-110'}`}>
 
-                    {/* Captain/Vice-Captain Badge - Higher Z-Index */}
-                    {pick.is_captain && (
-                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-bold w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-30 shadow-md">
-                            C
-                        </div>
-                    )}
-                    {pick.is_vice_captain && (
-                        <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-bold w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-30 shadow-md">
-                            V
-                        </div>
-                    )}
-                </div>
+                    {/* Click Ghost Icon (Edit Mode) - Only if restore button isn't handling it */}
+                    {/* Removing the old ghost icon overlay to prioritize restore button */}
 
-                {/* Info Card - Styled to match reference exactly */}
-                <div className="flex flex-col w-full max-w-[75px] sm:max-w-[90px] md:max-w-[110px] shadow-lg relative z-10">
-                    {/* Name Box (White) */}
-                    <div className="bg-white text-slate-900 rounded-t-[3px] text-center w-full h-[16px] sm:h-[18px] md:h-[20px] flex items-center justify-center">
-                        <p className="text-[11px] sm:text-xs md:text-[13px] font-bold truncate leading-none px-1">{player.web_name}</p>
+                    <div className={`relative mb-1 transition-transform duration-300 transform ${pick.is_captain || pick.is_vice_captain ? 'scale-110' : ''} z-20`} style={{ transformStyle: 'preserve-3d' }}>
+                        <img
+                            src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}${player.element_type === 1 ? '_1' : ''}-66.png`}
+                            alt={team.name}
+                            className="w-10 sm:w-12 md:w-14 lg:w-16 object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.3)] relative z-10"
+                        />
+
+                        {isNew && !isEditingTeam && (
+                            <div className="absolute -top-1 -left-2 bg-[#00ff87] text-[#37003c] text-[8px] md:text-[9px] font-black px-1.5 py-0.5 rounded-sm shadow-lg z-30 animate-bounce">
+                                NEW
+                            </div>
+                        )}
+                        {isOut && !isEditingTeam && (
+                            <div className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] md:text-[9px] font-black px-1.5 py-0.5 rounded-sm shadow-lg z-30 opacity-80">
+                                OUT
+                            </div>
+                        )}
+
+                        {/* Captain/Vice-Captain Badge - Higher Z-Index */}
+                        {pick.is_captain && (
+                            <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-bold w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-30 shadow-md">
+                                C
+                            </div>
+                        )}
+                        {pick.is_vice_captain && (
+                            <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[8px] md:text-[9px] font-bold w-3.5 md:w-4 flex items-center justify-center rounded-full border border-white z-30 shadow-md">
+                                V
+                            </div>
+                        )}
                     </div>
-                    {/* Points Box (Dark) */}
-                    <div className="bg-[#37003c] text-white rounded-b-[3px] text-center w-full border-t border-slate-200/20 h-[18px] sm:h-[20px] md:h-[22px] flex items-center justify-center">
-                        <p className="text-[12px] sm:text-[13px] md:text-base font-bold leading-none">
-                            {isEditingTeam ? `£${(player.now_cost / 10).toFixed(1)}m` : (points > 0 ? points : '-')}
-                        </p>
+
+                    {/* Info Card - Styled to match reference exactly */}
+                    <div className="flex flex-col w-full max-w-[75px] sm:max-w-[90px] md:max-w-[110px] shadow-lg relative z-10">
+                        {/* Name Box (White) */}
+                        <div className="bg-white text-slate-900 rounded-t-[3px] text-center w-full h-[16px] sm:h-[18px] md:h-[20px] flex items-center justify-center">
+                            <p className="text-[11px] sm:text-xs md:text-[13px] font-bold truncate leading-none px-1">{player.web_name}</p>
+                        </div>
+                        {/* Points Box (Dark) */}
+                        <div className="bg-[#37003c] text-white rounded-b-[3px] text-center w-full border-t border-slate-200/20 h-[18px] sm:h-[20px] md:h-[22px] flex items-center justify-center">
+                            <p className="text-[12px] sm:text-[13px] md:text-base font-bold leading-none">
+                                {isEditingTeam ? `£${(player.now_cost / 10).toFixed(1)}m` : (points > 0 ? points : '-')}
+                            </p>
+                        </div>
                     </div>
-                </div>
+                </div> {/* End of Player Content Wrapper */}
             </div>
         );
     };
@@ -522,19 +535,19 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         ];
 
         const headerTooltips: Record<string, string> = {
-            Pts: "Points: Total points scored in this gameweek.",
-            MP: "Minutes Played: Total minutes on the pitch.",
-            GS: "Goals Scored: Number of goals scored.",
-            A: "Assists: Number of goal assists.",
-            CS: "Clean Sheets: Conceded 0 goals (60+ mins for DEF/GKP).",
-            GC: "Goals Conceded: Goals conceded while on pitch.",
-            OG: "Own Goals: Goals scored into own net.",
-            PS: "Penalties Saved: Penalties stopped by the GKP.",
-            PM: "Penalties Missed: Penalties missed by the player.",
-            YC: "Yellow Cards: Yellow cards received.",
-            RC: "Red Cards: Red cards received.",
-            S: "Saves: Total saves made by the GKP.",
-            B: "Bonus: Bonus points awarded (BPS)."
+            Pts: "Points scored in this gameweek",
+            MP: "Minutes played",
+            GS: "Goals scored",
+            A: "Assists",
+            CS: "Conceded 0 goals (60+ mins for DEF/GKP)",
+            GC: "Goals conceded",
+            OG: "Goals scored",
+            PS: "Penalties saved",
+            PM: "Penalties missed",
+            YC: "Yellow cards",
+            RC: "Red cards",
+            S: "Saves",
+            B: "Bonus points"
         };
 
         const renderHeader = (label: string) => {
@@ -882,7 +895,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 Analysis Mode Active
                                             </h3>
                                             <button
-                                                onClick={(e) => { e.stopPropagation(); setIsEditingTeam(false); }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsEditingTeam(false);
+                                                    setGhostPlayerIds([]);
+                                                    setEditedPicks(null);
+                                                    setShowPlayerPicker(false);
+                                                }}
                                                 className="group/close bg-white/10 hover:bg-white/20 rounded-full p-1 transition-colors"
                                                 title="Exit Analysis Mode"
                                             >
@@ -927,104 +946,108 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             {view === 'list' ? (
                 <div className="pt-4">{renderListView()}</div>
             ) : (
-                <>
-                    {/* Pitch Section */}
+                <div className="flex gap-4 items-start justify-center relative">
+                    {/* Pitch Section Wrapper */}
+                    <div className="flex-1 w-full max-w-[1500px] mx-auto transition-all duration-300">
+                        {/* ... rest of pitch ... */}
+                        <div className="flex justify-center pb-4 px-4 overflow-hidden">
+                            <div className="relative w-full max-w-[1500px] mx-auto shadow-2xl min-h-[580px] md:min-h-0 aspect-[1417/788] md:aspect-auto">
+                                {/* The Image - Absolute on mobile to fill min-height, relative on desktop */}
+                                <img
+                                    src="/pitch.png"
+                                    className="absolute md:relative inset-0 w-full h-full md:h-auto object-cover md:object-contain block rounded-[10px]"
+                                    alt="Football Pitch"
+                                />
+
+                                {/* View Toggle (Pitch View) - Absolute Top Right */}
+                                <div className="absolute top-4 right-4 z-50">
+                                    <div className="flex bg-[#37003c]/80 backdrop-blur-md rounded-lg p-1 gap-1 border border-white/10 shadow-xl">
+                                        <button
+                                            onClick={() => setView('pitch')}
+                                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all bg-[#37003c] text-white shadow-lg"
+                                        >
+                                            Pitch View
+                                        </button>
+                                        <button
+                                            onClick={() => setView('list')}
+                                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all text-white/40 hover:text-white"
+                                        >
+                                            List View
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Players Layer - Absolute Row Positioning for precision on landscape pitch */}
+                                <div className="absolute inset-0 z-10">
+                                    {/* GKP Row - Lowest Z-Index */}
+                                    <div className="absolute top-[1%] md:top-[3%] left-0 right-0 flex justify-center z-10">
+                                        {gkp.map((p) => (
+                                            <div key={p.element} className="transition-transform hover:scale-110 duration-300">
+                                                {renderPlayer(p)}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* DEF Row - Higher Z-Index */}
+                                    <div className="absolute top-[22%] md:top-[28%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8 z-20">
+                                        {def.map((p) => (
+                                            <div key={p.element} className="transition-transform hover:scale-110 duration-300">
+                                                {renderPlayer(p)}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* MID Row - Higher Z-Index */}
+                                    <div className="absolute top-[42%] md:top-[52%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8 z-30">
+                                        {mid.map((p) => (
+                                            <div key={p.element} className="transition-transform hover:scale-110 duration-300">
+                                                {renderPlayer(p)}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* FWD Row - Highest Z-Index */}
+                                    <div className="absolute top-[62%] md:top-[75%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8 z-40">
+                                        {fwd.map((p) => (
+                                            <div key={p.element} className="transition-transform hover:scale-110 duration-300">
+                                                {renderPlayer(p)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* BENCH SECTION MOVED INSIDE PITCH CONTAINER WRAPPER IF NEEDED? 
+                        No, Bench is below pitch. */}
+
+                        {/* Bench Section - Floating look */}
+                        <div className="relative mt-8 max-w-2xl mx-auto z-30 px-2 md:px-4">
+                            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-[20px] p-3 md:p-6 border border-white/20 shadow-2xl">
+                                <div className="flex justify-center gap-1 md:gap-8 mb-2 mt-4 md:mt-6">
+                                    {bench.map((p, i) => {
+                                        const player = getPlayer(p.element);
+                                        const typeLabel = player?.element_type === 1 ? 'GKP' : player?.element_type === 2 ? 'DEF' : player?.element_type === 3 ? 'MID' : 'FWD';
+                                        return (
+                                            <div key={p.element} className="relative group">
+                                                <span className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 text-[8px] md:text-[10px] text-white/40 font-black tracking-widest uppercase whitespace-nowrap">
+                                                    {i === 0 ? 'GKP' : `${i}. ${typeLabel}`}
+                                                </span>
+                                                {renderPlayer(p)}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="text-center pt-2 pb-2">
+                                    <h3 className="text-lg md:text-xl font-black text-white italic tracking-widest uppercase">Substitutes</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div> {/* End of Pitch/Bench Container Column */}
+
                     {renderPlayerPicker()}
-                    {/* ... rest of pitch ... */}
-                    <div className="flex justify-center pb-4 px-4 overflow-hidden">
-                        <div className="relative w-full max-w-[960px] mx-auto shadow-2xl min-h-[580px] md:min-h-0 aspect-[1417/788] md:aspect-auto">
-                            {/* The Image - Absolute on mobile to fill min-height, relative on desktop */}
-                            <img
-                                src="/pitch.png"
-                                className="absolute md:relative inset-0 w-full h-full md:h-auto object-cover md:object-contain block rounded-[10px]"
-                                alt="Football Pitch"
-                            />
-
-                            {/* View Toggle (Pitch View) - Absolute Top Right */}
-                            <div className="absolute top-4 right-4 z-50">
-                                <div className="flex bg-[#37003c]/80 backdrop-blur-md rounded-lg p-1 gap-1 border border-white/10 shadow-xl">
-                                    <button
-                                        onClick={() => setView('pitch')}
-                                        className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all bg-[#37003c] text-white shadow-lg"
-                                    >
-                                        Pitch View
-                                    </button>
-                                    <button
-                                        onClick={() => setView('list')}
-                                        className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all text-white/40 hover:text-white"
-                                    >
-                                        List View
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Players Layer - Absolute Row Positioning for precision on landscape pitch */}
-                            <div className="absolute inset-0 z-10">
-                                {/* GKP Row */}
-                                <div className="absolute top-[1%] md:top-[3%] left-0 right-0 flex justify-center">
-                                    {gkp.map((p) => (
-                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
-                                            {renderPlayer(p)}
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* DEF Row */}
-                                <div className="absolute top-[22%] md:top-[28%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
-                                    {def.map((p) => (
-                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
-                                            {renderPlayer(p)}
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* MID Row */}
-                                <div className="absolute top-[42%] md:top-[52%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
-                                    {mid.map((p) => (
-                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
-                                            {renderPlayer(p)}
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* FWD Row */}
-                                <div className="absolute top-[62%] md:top-[75%] left-0 right-0 flex justify-center gap-3 sm:gap-9 md:gap-8">
-                                    {fwd.map((p) => (
-                                        <div key={p.element} className="transition-transform hover:scale-110 duration-300">
-                                            {renderPlayer(p)}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Bench Section - Floating look */}
-                    <div className="relative -mt-4 md:-mt-8 max-w-2xl mx-auto z-30 px-2 md:px-4">
-                        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-[20px] p-3 md:p-6 border border-white/20 shadow-2xl">
-                            <div className="flex justify-center gap-1 md:gap-8 mb-2 mt-4 md:mt-6">
-                                {bench.map((p, i) => {
-                                    const player = getPlayer(p.element);
-                                    const typeLabel = player?.element_type === 1 ? 'GKP' : player?.element_type === 2 ? 'DEF' : player?.element_type === 3 ? 'MID' : 'FWD';
-                                    return (
-                                        <div key={p.element} className="relative group">
-                                            <span className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 text-[8px] md:text-[10px] text-white/40 font-black tracking-widest uppercase whitespace-nowrap">
-                                                {i === 0 ? 'GKP' : `${i}. ${typeLabel}`}
-                                            </span>
-                                            {renderPlayer(p)}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            <div className="text-center pt-2 pb-2">
-                                <h3 className="text-lg md:text-xl font-black text-white italic tracking-widest uppercase">Substitutes</h3>
-                            </div>
-                        </div>
-                    </div>
-                </>
+                </div>
             )}
-
-            {/* {renderEditModal()} - REMOVED LEGACY MODAL */}
             {renderAnalysisModal()}
         </div>
     );
