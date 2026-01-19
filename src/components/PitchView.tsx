@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers } from '../services/api';
-import { analyzeTeam } from '../services/analysis';
-import type { AnalysisResult } from '../services/analysis';
+
+
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -46,6 +46,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [pickerSearch, setPickerSearch] = useState('');
     const [pickerPositionFilter, setPickerPositionFilter] = useState<number | null>(null);
     const [pickerTeamFilter, setPickerTeamFilter] = useState<number | null>(null);
+    // const [showConfirm, setShowConfirm] = useState(false); // Unused in this flow
+
 
 
     // Fetch Entry Details (Name, history, etc) - only once
@@ -647,155 +649,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     };
 
-    const renderEditModal = () => {
-        if (!isEditingTeam || !editedPicks || !entryData) return null;
 
-        const startingXI = editedPicks.picks.filter(p => p.position <= 11);
-        const bench = editedPicks.picks.filter(p => p.position > 11);
-
-        const gkp = startingXI.filter(p => getPlayer(p.element)?.element_type === 1);
-        const def = startingXI.filter(p => getPlayer(p.element)?.element_type === 2);
-        const mid = startingXI.filter(p => getPlayer(p.element)?.element_type === 3);
-        const fwd = startingXI.filter(p => getPlayer(p.element)?.element_type === 4);
-
-        const renderEditablePlayer = (pick: Pick) => {
-            const player = getPlayer(pick.element);
-            const team = player ? getTeam(player.team) : null;
-            const isGhost = ghostPlayerId === pick.element;
-
-            if (!player || !team) return null;
-
-            return (
-                <div key={pick.element} className={`relative flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 transition-all duration-300 ${isGhost ? 'opacity-50 grayscale scale-95' : 'hover:scale-105'} group`}>
-                    {/* Remove Button - Only show if not ghosted */}
-                    {!isGhost && !showPlayerPicker && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); handleRemovePlayer(pick); }}
-                            className="absolute -top-2 -right-2 z-30 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 scale-0 group-hover:scale-100 duration-200"
-                        >
-                            <X size={12} />
-                        </button>
-                    )}
-
-                    {/* Click Ghost to re-open picker if needed */}
-                    {isGhost && (
-                        <div className="absolute inset-0 z-40 flex items-center justify-center cursor-pointer" onClick={() => handleRemovePlayer(pick)}>
-                            <Search className="text-white w-8 h-8 animate-pulse" />
-                        </div>
-                    )}
-
-                    {/* Kit Image */}
-                    <div className="relative mb-1">
-                        <img
-                            src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}${player.element_type === 1 ? '_1' : ''}-66.png`}
-                            alt={team.name}
-                            className="w-10 sm:w-12 md:w-14 lg:w-16 object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.3)]"
-                        />
-                        {pick.is_captain && <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white">C</div>}
-                        {pick.is_vice_captain && <div className="absolute -bottom-1 -right-2 bg-slate-900 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white">V</div>}
-                    </div>
-
-                    {/* Info Card */}
-                    <div className="flex flex-col w-full max-w-[75px] sm:max-w-[90px] shadow-lg">
-                        <div className="bg-white text-slate-900 rounded-t-[3px] text-center w-full px-1 py-0.5">
-                            <p className="text-[10px] sm:text-[11px] font-bold truncate leading-none">{player.web_name}</p>
-                        </div>
-                        <div className={`bg-[#37003c] text-white rounded-b-[3px] text-center w-full border-t border-slate-200/20 py-0.5`}>
-                            <p className="text-[10px] sm:text-[11px] font-bold leading-none">{player.now_cost / 10}m</p>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => !showPlayerPicker && setIsEditingTeam(false)}></div>
-                <div className="relative bg-[#220025] w-full max-w-5xl h-[90vh] flex flex-col rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 duration-200">
-
-                    {/* Picker Side Panel */}
-                    {renderPlayerPicker()}
-
-                    {/* Header */}
-                    <div className="bg-[#37003c] p-6 border-b border-white/10 flex justify-between items-center shrink-0">
-                        <div>
-                            <h2 className="text-2xl font-black text-white italic tracking-tight uppercase">Analyze & Edit Team</h2>
-                            <p className="text-white/60 text-xs mt-1">Update your lineup to reflect any recent transfers before analysis.</p>
-                        </div>
-                        <button onClick={() => setIsEditingTeam(false)} className="text-white/50 hover:text-white">
-                            <X size={24} />
-                        </button>
-                    </div>
-
-                    {/* Content - Pitch */}
-                    <div className="flex-1 overflow-y-auto relative bg-[#1a4a1c]">
-                        {/* Pitch Image */}
-                        <img
-                            src="/pitch.png"
-                            alt="Pitch"
-                            className="absolute inset-0 w-full h-full object-cover opacity-80"
-                        />
-
-                        <div className="relative z-10 space-y-8 min-h-[600px] flex flex-col justify-between py-8 px-4 md:px-8">
-                            {/* GKP */}
-                            <div className="flex justify-center gap-4">{gkp.map(renderEditablePlayer)}</div>
-                            {/* DEF */}
-                            <div className="flex justify-center gap-4 md:gap-8">{def.map(renderEditablePlayer)}</div>
-                            {/* MID */}
-                            <div className="flex justify-center gap-4 md:gap-8">{mid.map(renderEditablePlayer)}</div>
-                            {/* FWD */}
-                            <div className="flex justify-center gap-4 md:gap-8">{fwd.map(renderEditablePlayer)}</div>
-
-                            {/* Bench Divider */}
-                            <div className="bg-[#37003c]/90 backdrop-blur-sm rounded-xl p-4 mt-8 border border-white/10">
-                                <p className="text-white/40 text-center text-[10px] font-bold uppercase tracking-widest mb-4">Bench</p>
-                                <div className="flex justify-center gap-4">{bench.map(renderEditablePlayer)}</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Footer - Wolf Action */}
-                    <div className="bg-[#37003c] p-4 border-t border-white/10 shrink-0 flex justify-end relative z-20">
-                        <button
-                            onClick={() => setShowConfirm(true)}
-                            className="bg-[#00ff87] text-[#37003c] px-6 py-3 rounded-lg font-black uppercase tracking-wide flex items-center gap-3 hover:bg-[#02efff] transition-colors shadow-lg hover:shadow-[0_0_20px_rgba(2,239,255,0.4)]"
-                        >
-                            <span className="text-xl">🐺</span>
-                            <span>Wolf's Analysis</span>
-                        </button>
-                    </div>
-
-                    {/* Custom Confirmation Overlay */}
-                    {showConfirm && (
-                        <div className="absolute inset-0 z-50 bg-[#37003c]/95 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200">
-                            <div className="max-w-md w-full bg-[#220025] border border-[#00ff87]/30 rounded-2xl p-8 text-center shadow-[0_0_50px_rgba(0,255,135,0.1)] relative overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-b from-[#00ff87]/5 to-transparent pointer-events-none"></div>
-                                <Activity className="w-16 h-16 text-[#00ff87] mx-auto mb-6 animate-pulse" />
-                                <h3 className="text-2xl font-black text-white italic tracking-tight uppercase mb-2">Confirm Lineup</h3>
-                                <p className="text-white/60 text-sm mb-8 leading-relaxed">
-                                    Are you ready for the Wolf to diagnose this specific team configuration?
-                                </p>
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={() => setShowConfirm(false)}
-                                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-lg border border-white/10 transition-colors uppercase tracking-wider text-xs"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={() => { setShowConfirm(false); runAnalysis(); }}
-                                        className="flex-1 py-3 bg-[#00ff87] hover:bg-[#02efff] text-[#37003c] font-black rounded-lg transition-colors uppercase tracking-wider text-xs shadow-lg"
-                                    >
-                                        Unleash Wolf
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
 
     const renderAnalysisModal = () => {
         if (!showAnalysis) return null;
@@ -1170,6 +1024,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </>
             )}
 
+            {/* {renderEditModal()} - REMOVED LEGACY MODAL */}
             {renderAnalysisModal()}
         </div>
     );
