@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import sqlite3 from 'sqlite3'
+import { createRequire } from 'module';
 import path from 'path'
-import url from 'url'
 import { fileURLToPath } from 'url'
+
+const require = createRequire(import.meta.url);
+const sqlite3 = require('sqlite3').verbose();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -15,10 +17,14 @@ export default defineConfig({
       name: 'fpl-local-api',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
-          const parsedUrl = url.parse(req.url || '', true);
+          const urlStr = req.url || '';
 
-          if (parsedUrl.pathname === '/api/team-search') {
-            const q = parsedUrl.query.q as string;
+          if (urlStr.startsWith('/api/team-search')) {
+            const urlObj = new URL(urlStr, `http://${req.headers.host || 'localhost'}`);
+            const q = urlObj.searchParams.get('q');
+
+            console.log(`[API] Searching for: ${q}`);
+
             if (!q || q.length < 2) {
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify([]));
@@ -29,20 +35,27 @@ export default defineConfig({
             const db = new sqlite3.Database(dbPath);
 
             const queryCode = `
-              SELECT team_id, team_name, manager_name, rank, total_points
-              FROM teams
-              WHERE team_name LIKE ? OR manager_name LIKE ?
-              ORDER BY rank ASC
+              SELECT t.team_id, t.team_name, t.manager_name
+              FROM teams_fts f
+              JOIN teams t ON f.rowid = t.id
+              WHERE teams_fts MATCH ?
+              ORDER BY rank
               LIMIT 20
             `;
-            const searchTerm = `%${q}%`;
 
-            db.all(queryCode, [searchTerm, searchTerm], (err, rows) => {
+            // FTS5 Prefix Search
+            // "Man Cit" -> "Man* Cit*"
+            // This matches "Manchester City", "Man City", etc.
+            const searchQuery = q.trim().split(/\s+/).map(term => term + '*').join(' ');
+
+            db.all(queryCode, [searchQuery], (err: any, rows: any[]) => {
               db.close();
               if (err) {
+                console.error('[API] DB Error:', err);
                 res.statusCode = 500;
                 res.end(JSON.stringify({ error: err.message }));
               } else {
+                console.log(`[API] Found ${rows.length} results`);
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify(rows));
               }

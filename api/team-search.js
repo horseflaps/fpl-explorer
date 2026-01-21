@@ -13,15 +13,18 @@ export default async function handler(req, res) {
 
     return new Promise((resolve, reject) => {
         const query = `
-            SELECT team_id, team_name, manager_name, rank, total_points
-            FROM teams
-            WHERE team_name LIKE ? OR manager_name LIKE ?
-            ORDER BY rank ASC
+            SELECT t.team_id, t.team_name, t.manager_name
+            FROM teams_fts f
+            JOIN teams t ON f.rowid = t.id
+            WHERE teams_fts MATCH ?
+            ORDER BY rank
             LIMIT 20
         `;
-        const searchTerm = `%${q}%`;
+        // FTS5 Prefix Search
+        // "Man Cit" -> "Man* Cit*"
+        const searchQuery = q.trim().split(/\s+/).map(term => term + '*').join(' ');
 
-        db.all(query, [searchTerm, searchTerm], (err, rows) => {
+        db.all(query, [searchQuery], (err, rows) => {
             db.close();
             if (err) {
                 console.error('Database error:', err);

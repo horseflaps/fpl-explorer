@@ -11,10 +11,21 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-DB_NAME = "fpl.db"
+import shutil
+import tempfile
+
+# Determine project root relative to this script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+FINAL_DB_PATH = os.path.join(PROJECT_ROOT, "fpl.db")
+
+# We write to a temp file in the SYSTEM TEMP dir (local SSD) to avoid network drive slowness
+# This brings speed back up to ~50k/sec even if Y: is a network drive
+TEMP_DB_PATH = os.path.join(tempfile.gettempdir(), "fpl_temp.db")
+
 BATCH_SIZE = 50000
 
-def init_db(conn):
+def init_db(conn, update_mode=False):
     """Initialize the database schema and set performance pragmas."""
     cursor = conn.cursor()
     logging.info("Initializing database schema...")
@@ -27,35 +38,57 @@ def init_db(conn):
     cursor.execute("PRAGMA locking_mode = EXCLUSIVE;") 
     cursor.execute("PRAGMA temp_store = MEMORY;")
     
-    # Create the main table
-    cursor.execute("DROP TABLE IF EXISTS teams") # Start fresh (faster inserts, correct schema)
+    # Create the main table if it doesn't exist
+    if not update_mode:
+        logging.info("Fresh import mode: ensuring clean state...")
+        cursor.execute("DROP TABLE IF EXISTS teams") # Start fresh (faster inserts, correct schema)
+        
     cursor.execute("""
-        CREATE TABLE teams (
+        CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY,
             team_id INTEGER UNIQUE,
             team_name TEXT,
-            manager_name TEXT,
-            rank INTEGER
+            manager_name TEXT
         )
     """)
     
-    # Drop indices if they exist (to speed up inserts)
-    logging.info("Dropping indices for bulk insert performance...")
-    cursor.execute("DROP INDEX IF EXISTS idx_team_name")
-    cursor.execute("DROP INDEX IF EXISTS idx_manager_name")
-    cursor.execute("DROP INDEX IF EXISTS idx_rank")
+    # Drop indices if they exist (to speed up inserts) - ONLY in fresh mode
+    # If using Atomic Rebuild (fresh mode), the file is empty anyway, so no indices to drop.
+    # But checking doesn't hurt.
+    
+    if not update_mode:
+        logging.info("Dropping indices for bulk insert performance...")
+        cursor.execute("DROP INDEX IF EXISTS idx_team_name")
+        cursor.execute("DROP INDEX IF EXISTS idx_manager_name")
+    
     conn.commit()
 
-def import_csv(csv_file):
+def import_csv(csv_file, update_mode=False):
     """Import CSV data into the database using chunked processing."""
     if not os.path.exists(csv_file):
         logging.error(f"File not found: {csv_file}")
         return
 
-    conn = sqlite3.connect(DB_NAME)
+    # If updating, we must use the FINAL DB. If fresh import, we use TEMP DB.
+    # However, if we use TEMP DB, we can't "Resume" or "Update" easily unless we copy first.
+    # Strategy: 
+    #   - Fresh Import: Write to empty `fpl_temp.db`. Replace `fpl.db` at end.
+    #   - Update: Write directly to `fpl.db`.
+    
+    target_db_path = FINAL_DB_PATH if update_mode else TEMP_DB_PATH
+    
+    if not update_mode:
+        # Start with a fresh empty file for speed
+        if os.path.exists(TEMP_DB_PATH):
+            os.remove(TEMP_DB_PATH)
+        logging.info(f"Creating fresh temporary database at: {TEMP_DB_PATH}")
+    else:
+        logging.info(f"Updating existing database at: {target_db_path}")
+
+    conn = sqlite3.connect(target_db_path)
     
     try:
-        init_db(conn)
+        init_db(conn, update_mode)
 
         logging.info(f"Importing data from {csv_file} in batches of {BATCH_SIZE}...")
         start_time = time.time()
@@ -73,16 +106,15 @@ def import_csv(csv_file):
                     batch_data.append((
                         int(row['Team ID']),
                         row['Team Name'],
-                        row['Manager Name'],
-                        int(row['Current Rank'])
+                        row['Manager Name']
                     ))
                 except (ValueError, KeyError) as e:
                     continue # Skip bad rows
 
                 if len(batch_data) >= BATCH_SIZE:
                     cursor.executemany("""
-                        INSERT OR REPLACE INTO teams (team_id, team_name, manager_name, rank)
-                        VALUES (?, ?, ?, ?)
+                        INSERT OR REPLACE INTO teams (team_id, team_name, manager_name)
+                        VALUES (?, ?, ?)
                     """, batch_data)
                     conn.commit()
                     total_imported += len(batch_data)
@@ -95,8 +127,8 @@ def import_csv(csv_file):
             # Insert remaining
             if batch_data:
                 cursor.executemany("""
-                    INSERT OR REPLACE INTO teams (team_id, team_name, manager_name, rank)
-                    VALUES (?, ?, ?, ?)
+                    INSERT OR REPLACE INTO teams (team_id, team_name, manager_name)
+                    VALUES (?, ?, ?)
                 """, batch_data)
                 conn.commit()
                 total_imported += len(batch_data)
@@ -110,46 +142,56 @@ def import_csv(csv_file):
             logging.info(f"Total teams in database: {count:,}")
             
             # Create indices AFTER insert
-            logging.info("Creating indices (this may take a minute)...")
+            logging.info("Verifying indices...")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_team_name ON teams(team_name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_manager_name ON teams(manager_name)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rank ON teams(rank)")
+            
+            # FTS5 Setup
+            logging.info("Setting up FTS5 search index...")
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS teams_fts USING fts5(
+                    team_name, 
+                    manager_name, 
+                    content='teams', 
+                    content_rowid='id'
+                )
+            """)
+            # Populate/Rebuild FTS index
+            logging.info("Populating FTS index (this may take a while)...")
+            cursor.execute("INSERT INTO teams_fts(teams_fts) VALUES('rebuild')")
+            
             conn.commit()
-            logging.info("Indices created successfully.")
+            logging.info("Indices and FTS verified/created.")
             
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         conn.rollback()
-    finally:
         conn.close()
+        return # Do not move file if error
+    
+    conn.close()
+    
+    # If we used a temp file, move it to the final location
+    if not update_mode:
+        logging.info(f"Moving temporary DB to final location: {FINAL_DB_PATH}...")
+        
+        # Windows file locking hack: ensure connection is truly closed
+        time.sleep(1) 
+        
+        try:
+            if os.path.exists(FINAL_DB_PATH):
+                os.remove(FINAL_DB_PATH) # Remove old production DB
+            shutil.move(TEMP_DB_PATH, FINAL_DB_PATH)
+            logging.info("Database moved successfully.")
+        except Exception as e:
+            logging.error(f"Failed to move database! Data is in {TEMP_DB_PATH}. Error: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Import FPL CSV to SQLite (Optimized)')
     parser.add_argument('csv_file', help='Path to the CSV file to import')
+    parser.add_argument('--update', action='store_true', help='Update existing database instead of wiping it')
     
     args = parser.parse_args()
     
-    import_csv(args.csv_file)
+    import_csv(args.csv_file, args.update)
 
-    # Move DB to project root
-    import shutil
-    
-    # Current script directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Project root (parent of script dir)
-    project_root = os.path.dirname(script_dir)
-    
-    source_db = DB_NAME
-    target_db = os.path.join(project_root, DB_NAME)
-    
-    if os.path.exists(source_db):
-        logging.info(f"Moving {source_db} to {target_db}...")
-        try:
-            if os.path.exists(target_db):
-                os.remove(target_db) # Ensure clean overwrite
-            shutil.move(source_db, target_db)
-            logging.info("Database moved successfully.")
-        except Exception as e:
-            logging.error(f"Failed to move database: {e}")
-    else:
-        logging.error(f"Database {source_db} not found after import.")

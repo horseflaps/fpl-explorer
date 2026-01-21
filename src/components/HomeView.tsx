@@ -153,7 +153,7 @@ const HomeView: React.FC = () => {
                                                         {result.team_name}
                                                     </div>
                                                     <div className="text-xs text-gray-500">
-                                                        {result.manager_name} • Rank: {result.rank.toLocaleString()}
+                                                        {result.manager_name}
                                                     </div>
                                                 </div>
                                                 <ChevronRight size={16} className="text-gray-600 group-hover:text-fpl-green" />
