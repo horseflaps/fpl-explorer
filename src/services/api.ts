@@ -162,3 +162,19 @@ export const searchTeamsByName = async (query: string): Promise<any[]> => {
         throw error;
     }
 };
+
+export const fetchTransferStatus = async (entryId: number): Promise<any> => {
+    try {
+        const response = await fetch(`/api/entry/${entryId}/transfers-status/`);
+        if (!response.ok) {
+            // If public API doesn't allow this without auth, we might get 401/403.
+            // But we'll try as requested.
+            throw new Error(`Error fetching transfer status: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.warn("Failed to fetch transfer status (might be private):", error);
+        return null; // Return null to handle gracefully
+    }
+};

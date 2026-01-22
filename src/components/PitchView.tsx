@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
-import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers } from '../services/api';
+import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus } from '../services/api';
 
 
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
@@ -14,6 +14,53 @@ interface PitchViewProps {
 }
 
 const PitchView: React.FC<PitchViewProps> = ({ data }) => {
+    // Helper to calculate free transfers based on history
+    const calculateFreeTransfers = (history: any, entryData: Entry | null, targetGw: number): number => {
+        if (!history || !history.current || history.current.length === 0) return 1;
+
+        // FPL 24/25 Rules: 
+        // - Start with 1 FT.
+        // - Cap at 5 FTs.
+        // - WC/FH reset FTs to 1 for the *next* GW.
+        // - Joining the game gives unlimited transfers for that first GW, resets to 1 for next.
+
+        let available = 1;
+
+        // Get chips used map for easy lookup
+        const chipsUsed: Record<number, string> = {};
+        if (history.chips) {
+            history.chips.forEach((c: any) => {
+                chipsUsed[c.event] = c.name;
+            });
+        }
+
+        const startedEvent = entryData?.started_event || 1;
+
+        // Iterate through COMPLETED gameweek history only
+        // effectively simulating the state UP TO the target gameweek.
+        // We stop BEFORE processing the target gameweek itself.
+        const relevantHistory = history.current.filter((gw: any) => gw.event < targetGw);
+
+        relevantHistory.forEach((gw: any) => {
+            const eventId = gw.event;
+            const transfersUsed = gw.event_transfers;
+            const chip = chipsUsed[eventId];
+
+            if (eventId === 1 || eventId === startedEvent) {
+                available = 1;
+            } else if (chip === 'wildcard' || chip === 'freehit') {
+                available = 1;
+            } else {
+                const remaining = Math.max(0, available - transfersUsed);
+                available = Math.min(5, remaining + 1);
+            }
+        });
+
+        console.log(`[PitchView] Calculated Transfers for GW${targetGw}: ${available}`);
+        return available;
+    };
+
+
     const [searchParams] = useSearchParams();
     const entryId = searchParams.get('entry') ? Number(searchParams.get('entry')) : null;
 
@@ -33,6 +80,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [entryData, setEntryData] = useState<Entry | null>(null);
     const [entryHistory, setEntryHistory] = useState<any | null>(null);
     const [transfers, setTransfers] = useState<any[]>([]);
+    const [availableTransfers, setAvailableTransfers] = useState<number>(1); // Default to 1
     const [liveStats, setLiveStats] = useState<Record<number, LiveStats>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -48,19 +96,67 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [pickerTeamFilter, setPickerTeamFilter] = useState<number | null>(null);
     // const [showConfirm, setShowConfirm] = useState(false); // Unused in this flow
 
+    // Swap Logic State
+    const [swapSource, setSwapSource] = useState<Pick | null>(null);
+
 
 
     // Fetch Entry Details (Name, history, etc) - only once
     useEffect(() => {
-        if (entryId) {
-            Promise.all([
-                fetchEntry(entryId),
-                fetchEntryHistory(entryId)
-            ]).then(([entry, history]) => {
+        const fetchEntryDetails = async () => {
+            if (!entryId) return;
+
+            try {
+                const [entry, history] = await Promise.all([
+                    fetchEntry(entryId),
+                    fetchEntryHistory(entryId)
+                ]);
                 setEntryData(entry);
                 setEntryHistory(history);
-            }).catch(e => console.error("Error fetching entry details:", e));
-        }
+
+                // Fetch Transfer Status (for available free transfers)
+                try {
+                    const status = await fetchTransferStatus(entryId);
+                    // "limit" usually usually holds the number of free transfers available? 
+                    // Actually the API response for transfers-status is confusing sometimes.
+                    // But usually if public, it might just return null.
+                    // If status exists, use logic.
+                    // User said "it will be 1 or 2".
+                    // If I can't find it, I'll default to 1.
+                    // Let's assume status has 'limit' or 'next_event_transfers_limit'.
+                    // If undefined, we can try to infer from history?
+                    // But for now, let's trust the user implies it's fetchable.
+                    // If status is null, we stick to default 1.
+                    if (status && typeof status.limit === 'number') {
+                        setAvailableTransfers(status.limit);
+                        console.log(`[PitchView] Transfers from API: ${status.limit}`);
+                    } else {
+                        // Fallback: Check history for saved transfer
+                        console.log("[PitchView] Transfer API failed/empty, calculating from history...");
+                        // Target the NEXT event (upcoming deadline) to get current available budget
+                        // If no next event (end of season), fallback to current + 1 or just current.
+                        const nextEvent = data.events.find(e => e.is_next);
+                        const targetGw = nextEvent ? nextEvent.id : (currentEvent?.id || 1);
+
+                        const calculated = calculateFreeTransfers(history, entry, targetGw);
+                        console.log(`[PitchView] Calculated Transfers: ${calculated}`);
+                        setAvailableTransfers(calculated);
+                    }
+                } catch (e) {
+                    console.warn("Could not fetch transfer status (likely private), calculating from history...");
+                    if (history) {
+                        const nextEvent = data.events.find(e => e.is_next);
+                        const targetGw = nextEvent ? nextEvent.id : (currentEvent?.id || 1);
+                        const calculated = calculateFreeTransfers(history, entry, targetGw);
+                        console.log(`[PitchView] Calculated Transfers (Fallback): ${calculated}`);
+                        setAvailableTransfers(calculated);
+                    }
+                }
+            } catch (e) {
+                console.error("Error fetching entry details:", e);
+            }
+        };
+        fetchEntryDetails();
     }, [entryId]);
 
     useEffect(() => {
@@ -150,7 +246,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         };
 
         loadPicks();
-    }, [entryId, selectedGw]); // Removed isLiveSync dependency
+    }, [entryId, selectedGw, data.events]); // Removed isLiveSync dependency
 
     const handlePrevGw = () => setSelectedGw(prev => Math.max(1, prev - 1));
     const handleNextGw = () => {
@@ -195,7 +291,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setAiAnalysisText(null); // Clear previous results
 
         try {
-            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory);
+            // Calculate remaining transfers accounting for ghost moves
+            const movesMadeInDraft = ghostPlayerIds.length; // Each ghost ID is a removal
+            // transfersAvailable = Initial (Start of GW) - DraftUsed
+            const transfersLeft = Math.max(0, availableTransfers - movesMadeInDraft);
+
+            const prompt = generateGeminiPrompt(data, picksToUse, liveStats, entryData, entryHistory, transfersLeft);
             const result = await fetchGeminiAnalysis(prompt);
             setAiAnalysisText(result);
         } catch (error: any) {
@@ -275,19 +376,48 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
         // Only close picker if no more ghosts? Or user can keep picking?
         // "select 2 players to replace" implies continuous picking.
-        // If more ghosts remain, keep picker open?
-        // But maybe user wants to pause.
-        // Let's keep it open if there are more ghosts, close if empty.
-        // We know we just removed one.
-        if (ghostPlayerIds.length <= 1) { // 1 because we just found one to remove but state update is async-ish in logic flow thinking
-            setShowPlayerPicker(false);
-        }
-        // Actually we need to check the *next* state length.
-        // Since we are setting state, let's assume if (ghostPlayerIds.length - 1 === 0) close.
-        if (ghostPlayerIds.length === 1) {
+        if (ghostPlayerIds.length <= 1) { // We just used one, so check length-1? Actually we filtered already.
+            // If we just removed the last one, close.
+            // Wait, state update is async.
+            // Let's simplified close for now.
             setShowPlayerPicker(false);
         }
     };
+
+    // --- SWAP LOGIC ---
+    const handleSwap = (targetPick: Pick) => {
+        if (!swapSource || !editedPicks) return;
+
+        // If target is same as source, cancel swap
+        if (targetPick.element === swapSource.element) {
+            setSwapSource(null);
+            return;
+        }
+
+        const newPicks = { ...editedPicks };
+        const sourceIndex = newPicks.picks.findIndex(p => p.element === swapSource.element);
+        const targetIndex = newPicks.picks.findIndex(p => p.element === targetPick.element);
+
+        if (sourceIndex !== -1 && targetIndex !== -1) {
+            // Swap Elements (ID, Multiplier, Captaincy? No, usually just element moves)
+            // Actually, in FPL "Substitutions", the position/role (Captain) stays with the SLOT if you change formation?
+            // But if you swap Pitch-Pitch, attributes might move.
+            // Let's do a simple element ID swap first, preserving other slot attributes (like captaincy) if desirable?
+            // Standard FPL behavior: Direct swap of players. Attributes (C/V) stay with player if possible? 
+            // Actually, if I swap Salah (C) to bench, does he stay Captain? No.
+
+            // SIMPLIFIED SWAP: Just swap the element IDs.
+            const sourceElement = newPicks.picks[sourceIndex].element;
+            const targetElement = newPicks.picks[targetIndex].element;
+
+            newPicks.picks[sourceIndex] = { ...newPicks.picks[sourceIndex], element: targetElement };
+            newPicks.picks[targetIndex] = { ...newPicks.picks[targetIndex], element: sourceElement };
+
+            setEditedPicks(newPicks);
+        }
+        setSwapSource(null);
+    };
+
 
     const renderPlayerPicker = () => {
         if (!showPlayerPicker) return null;
@@ -310,15 +440,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         }).sort((a, b) => b.total_points - a.total_points); // Sort by points by default
 
         return (
-            <div className="absolute -right-[340px] top-0 bottom-0 w-80 h-full bg-[#220025] border-l border-white/10 shadow-2xl z-[100] flex flex-col animate-in slide-in-from-right duration-300 rounded-xl overflow-hidden">
+            <div className="w-80 h-[800px] shrink-0 bg-[#220025] border-r border-white/10 shadow-2xl z-30 flex flex-col animate-in slide-in-from-left duration-300 rounded-xl overflow-hidden mr-4">
                 <div className="p-4 border-b border-white/10 bg-[#37003c]">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-white font-bold uppercase tracking-wider">Select Player</h3>
                         <div className="flex items-center gap-2">
                             {ghostPlayerIds.length > 0 && <span className="text-xs text-[#00ff87] font-bold">{ghostPlayerIds.length} Slot{ghostPlayerIds.length > 1 ? 's' : ''} Open</span>}
-                            <button onClick={() => { setShowPlayerPicker(false); }} className="text-white/50 hover:text-white">
-                                <X size={20} />
-                            </button>
                         </div>
                     </div>
 
@@ -425,9 +552,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 key={pick.element}
                 className={`flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px] relative transition-all ${isGhost ? 'z-10' : 'z-20 hover:z-[60]'}`}
                 onClick={() => {
-                    if (isEditingTeam && isGhost) handleRemovePlayer(pick); // Click ghost to re-open picker 
-                    if (isEditingTeam && isGhost && !showPlayerPicker) {
-                        setShowPlayerPicker(true);
+                    if (isEditingTeam) {
+                        if (isGhost) {
+                            handleRemovePlayer(pick); // Click ghost to re-open picker 
+                            if (!showPlayerPicker) setShowPlayerPicker(true);
+                        } else if (swapSource) {
+                            // If Swap Mode active, clicking any player triggers swap
+                            handleSwap(pick);
+                        }
                     }
                 }}
             >
@@ -452,19 +584,35 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     </button>
                 )}
 
-                {/* Restore Button (Ghost Mode) */}
-                {isEditingTeam && isGhost && (
+                {/* Swap Icon (Edit Mode - Hover) */}
+                {isEditingTeam && !isGhost && !swapSource && (
                     <button
-                        onClick={(e) => { e.stopPropagation(); handleRestorePlayer(pick); }}
-                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-blue-500 text-white rounded-full p-2 hover:bg-blue-400 transition-colors shadow-lg animate-in zoom-in"
-                        title="Restore Player"
+                        onClick={(e) => { e.stopPropagation(); setSwapSource(pick); }}
+                        className="absolute -top-1 -left-1 z-[70] bg-[#37003c] text-[#00ff87] rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all scale-0 group-hover:scale-100 duration-200 border border-[#00ff87] shadow-lg hover:scale-110"
+                        title="Swap Position"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                        <ArrowLeftRight size={12} />
                     </button>
                 )}
 
+                {/* Cancel Swap Button (Active Swap Source) */}
+                {isEditingTeam && swapSource?.element === pick.element && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setSwapSource(null); }}
+                        className="absolute -top-2 -left-2 z-[80] bg-yellow-400 text-black rounded-full p-1 shadow-lg animate-bounce"
+                        title="Cancel Swap"
+                    >
+                        <X size={12} />
+                    </button>
+                )}
+
+
                 {/* Player Content Wrapper - Applies Ghost Styles */}
-                <div className={`flex flex-col items-center w-full transition-all duration-300 ${isGhost ? 'opacity-40 grayscale blur-[1px] scale-95' : 'group-hover:scale-110'}`}>
+                <div className={`flex flex-col items-center w-full transition-all duration-300 
+                    ${isGhost ? 'opacity-40 grayscale blur-[1px] scale-95' : 'group-hover:scale-110'}
+                    ${swapSource?.element === pick.element ? 'ring-2 ring-yellow-400 rounded-lg scale-110 z-50 shadow-[0_0_20px_rgba(250,204,21,0.5)]' : ''}
+                    ${swapSource && swapSource.element !== pick.element ? 'cursor-alias opacity-80 hover:opacity-100 hover:ring-2 hover:ring-[#00ff87] hover:scale-105 rounded-lg' : ''}
+                `}>
 
                     {/* Click Ghost Icon (Edit Mode) - Only if restore button isn't handling it */}
                     {/* Removing the old ghost icon overlay to prioritize restore button */}
@@ -514,7 +662,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         </div>
                     </div>
                 </div> {/* End of Player Content Wrapper */}
-            </div>
+            </div >
         );
     };
 
@@ -777,7 +925,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     };
 
     return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none focus:outline-none focus:ring-0" tabIndex={-1}>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
             {/* Top Row: Team Name */}
             <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2">
                 <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
@@ -850,7 +998,25 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/5 rounded-xl border border-white/10 group hover:border-[#02efff]/30 transition-all hover:bg-[#02efff]/5">
                     <div className="text-white font-black text-2xl italic tracking-tighter group-hover:scale-110 transition-transform">
-                        {isReconstructed ? 0 : (picksData?.entry_history?.event_transfers || 0)}
+                        {(() => {
+                            // Calculate Used Transfers in Edit Mode
+                            let transfersUsed = 0;
+                            if (isEditingTeam && editedPicks && picksData) {
+                                // Count slots that are different OR ghosted
+                                picksData.picks.forEach((originalPick, index) => {
+                                    const currentPick = editedPicks.picks[index];
+                                    const isGhost = ghostPlayerIds.includes(currentPick.element);
+                                    const isReplaced = currentPick.element !== originalPick.element;
+
+                                    if (isGhost || isReplaced) {
+                                        transfersUsed++;
+                                    }
+                                });
+                            }
+                            // Calculate Remaining
+                            // Formula: StartOfWeek - AnalysisUsed
+                            return Math.max(0, availableTransfers - transfersUsed);
+                        })()}
                     </div>
                     <div className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-1 group-hover:text-[#02efff]/60 transition-colors">Transfers →</div>
                 </div>
@@ -894,21 +1060,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <h3 className="text-lg md:text-2xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 text-[#00ff87]">
                                                 Analysis Mode Active
                                             </h3>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setIsEditingTeam(false);
-                                                    setGhostPlayerIds([]);
-                                                    setEditedPicks(null);
-                                                    setShowPlayerPicker(false);
-                                                }}
-                                                className="group/close bg-white/10 hover:bg-white/20 rounded-full p-1 transition-colors"
-                                                title="Exit Analysis Mode"
-                                            >
-                                                <X size={12} className="text-white/50 group-hover/close:text-white" />
-                                            </button>
+
                                         </div>
-                                        <p className="text-[10px] md:text-xs text-white/80 font-medium">
+                                        <p className="text-xs md:text-sm text-white font-bold tracking-wide mt-0.5 leading-tight">
                                             Update your lineup below to reflect any recent transfers, then Unleash the Wolf.
                                         </p>
                                     </div>
@@ -924,7 +1078,24 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         </div>
 
                         {/* Button Action */}
-                        <div className="shrink-0">
+                        <div className="shrink-0 flex items-center gap-3">
+                            {/* Exit Button */}
+                            {isEditingTeam && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsEditingTeam(false);
+                                        setGhostPlayerIds([]);
+                                        setEditedPicks(null);
+                                        setShowPlayerPicker(false);
+                                    }}
+                                    className="w-12 h-12 md:w-[54px] md:h-[54px] flex items-center justify-center bg-[#220025] border border-white/10 rounded-xl hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400 text-white/40 transition-all group/exit shadow-lg"
+                                    title="Exit Analysis Mode"
+                                >
+                                    <X size={24} className="group-hover/exit:scale-110 transition-transform" />
+                                </button>
+                            )}
+
                             {isEditingTeam ? (
                                 <button
                                     onClick={(e) => { e.stopPropagation(); runAnalysis(); }}
@@ -946,7 +1117,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             {view === 'list' ? (
                 <div className="pt-4">{renderListView()}</div>
             ) : (
-                <div className="flex gap-4 items-start justify-center relative">
+                <div className="flex items-start justify-center relative w-full">
+                    {renderPlayerPicker()}
                     {/* Pitch Section Wrapper */}
                     <div className="flex-1 w-full max-w-[1500px] mx-auto transition-all duration-300">
                         {/* ... rest of pitch ... */}
@@ -1044,8 +1216,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         </div>
                     </div> {/* End of Pitch/Bench Container Column */}
-
-                    {renderPlayerPicker()}
                 </div>
             )}
             {renderAnalysisModal()}

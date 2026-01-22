@@ -1,14 +1,22 @@
-import type { FPLResponse, EntryPicksResponse, Entry } from '../types/fpl';
+import type { FPLResponse, EntryPicksResponse, Entry, LiveStats } from '../types/fpl';
 
 export const generateGeminiPrompt = (
     data: FPLResponse,
     picks: EntryPicksResponse,
+    liveStats: Record<number, LiveStats>,
     entry: Entry,
-    history?: any
+    history: any,
+    transfersAvailable: number // New parameter
 ): string => {
     // Helpers
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
+
+    const teamName = entry.name;
+    const managerName = `${entry.player_first_name} ${entry.player_last_name}`;
+    const overallRank = picks.entry_history.overall_rank;
+    const totalPoints = picks.entry_history.total_points;
+    const gwPoints = picks.entry_history.points; // Live points if available
 
     const myPlayers = picks.picks.map(p => {
         const player = getPlayer(p.element);
@@ -17,6 +25,7 @@ export const generateGeminiPrompt = (
             name: player.web_name,
             team: team.short_name,
             position: ['?', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type],
+            id: player.id, // helpful for identification
             cost: player.now_cost / 10,
             form: player.form,
             xG: player.expected_goals,
@@ -46,33 +55,34 @@ export const generateGeminiPrompt = (
             sentiment: `+${p.transfers_in_event.toLocaleString()} this GW`
         }));
 
-    // Estimate Free Transfers (FT)
-    let estimatedFT = 1;
-    if (history && history.current) {
-        const prevGwIndex = history.current.findIndex((h: any) => h.event === currentGw) - 1;
-        if (prevGwIndex >= 0) {
-            const prevGw = history.current[prevGwIndex];
-            if (prevGw.event_transfers === 0) {
-                estimatedFT = 2;
-                // Since FPL 2024/25 allows rolling up to 5 FTs, we'll keep it simple for now
-            }
-        }
-    }
+    // Estimate Free Transfers (FT) using the passed transfersAvailable if provided
+    // If transfersAvailable is passed, we trust the caller (who handled the logic).
+    // Otherwise fallback to basic estimation.
+    let netFT = transfersAvailable;
+    /* 
+    Fallback logic removed as we now expect explicit transfersAvailable. 
+    But keeping "estimatedFT" logic just in case? No, simplest is to use the passed value.
+    */
 
-    const transfersMadeThisWeek = picks.entry_history.event_transfers || 0;
-    const netFT = Math.max(0, estimatedFT - transfersMadeThisWeek);
     const chipsUsed = history?.chips?.map((c: any) => c.name).join(', ') || 'None';
 
     return `
     You are the **Fantasy Premier Wolf**, an elite, aggressive FPL strategist. 
     Analyze this team for GW${currentGw}. Be direct, confident, and slightly sarcastic/bantery.
 
+    User Team: ${teamName}
+    Manager: ${managerName}
+    Overall Rank: ${overallRank}
+    Total Points: ${totalPoints}
+    Current GW Live Points: ${gwPoints}
+
     **TEAM DATA:**
     ${JSON.stringify(myPlayers, null, 2)}
     
     **FINANCES:**
     - Current Bank: £${bank}m
-    - Available Free Transfers: ${netFT}
+    - **Available Free Transfers for Next GW: ${netFT}**
+      (Note: This count accounts for any removed players in the current draft plan.)
     - Chips Played: ${chipsUsed}
 
     **MARKET DATA (Top Buy Targets & Trends):**
