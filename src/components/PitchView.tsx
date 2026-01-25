@@ -62,8 +62,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     };
 
 
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const entryId = searchParams.get('entry') ? Number(searchParams.get('entry')) : null;
+
+    // Persistence: Redirect to last analysed entry if none provided
+    useEffect(() => {
+        if (!entryId) {
+            const savedId = localStorage.getItem('last_analysed_entry');
+            if (savedId) {
+                setSearchParams({ entry: savedId }, { replace: true });
+            }
+        }
+    }, [entryId, setSearchParams]);
 
     // Default to current gameweek
     const currentEvent = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
@@ -115,12 +125,29 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // Fetch Entry Details (Name, history, etc) - only once
     useEffect(() => {
         const fetchEntryDetails = async () => {
-            if (!entryId) return;
+            // Persistence Logic: If no entryId in URL, try to get from localStorage
+            let activeEntryId = entryId;
+            if (!activeEntryId) {
+                const savedId = localStorage.getItem('last_analysed_entry');
+                if (savedId) {
+                    // Update URL silently or just use it? 
+                    // Updating URL is cleaner for copy-paste sharing and consistency
+                    // But we can't update URL easily inside async effect without causing loop or nav header sync issues.
+                    // A better place might be at the component root or a redirect.
+                    // However, we can just use it for fetching.
+                    // BUT: The component props/hooks depend on `entryId` derived from searchParams.
+                    // So we should navigate.
+                }
+            } else {
+                localStorage.setItem('last_analysed_entry', activeEntryId.toString());
+            }
+
+            if (!activeEntryId) return;
 
             try {
                 const [entry, history] = await Promise.all([
-                    fetchEntry(entryId),
-                    fetchEntryHistory(entryId)
+                    fetchEntry(activeEntryId),
+                    fetchEntryHistory(activeEntryId)
                 ]);
                 setEntryData(entry);
                 setEntryHistory(history);
@@ -393,7 +420,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    name: `${entryData.name} (GW${selectedGw})`,
+                    name: entryData.name,
                     entry_id: entryData.id,
                     team_data: {
                         manager: entryData.player_first_name + ' ' + entryData.player_last_name,
@@ -1036,8 +1063,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
             {/* Top Row: Team Name */}
-            <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2">
+            <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2 flex flex-col md:flex-row items-center md:items-end gap-3 justify-center md:justify-start">
                 <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
+
+                {/* Success Toast - Now next to name */}
+                {showSaveSuccess && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                        <div className="bg-[#00ff87] text-[#37003c] px-3 py-1 rounded-full font-bold text-xs shadow-[0_0_15px_rgba(0,255,135,0.4)] flex items-center gap-1.5 border border-white/50">
+                            <Save size={12} />
+                            Team Saved!
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Gameweek Nav Row */}
@@ -1064,16 +1101,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 Log in to save to My Teams
                             </div>
                         )}
-                    </div>
-                )}
-
-                {/* Success Toast */}
-                {showSaveSuccess && (
-                    <div className="absolute left-0 -top-12 animate-in fade-in slide-in-from-bottom-2 duration-300 z-50">
-                        <div className="bg-[#00ff87] text-[#37003c] px-4 py-2 rounded-lg font-bold text-sm shadow-[0_0_20px_rgba(0,255,135,0.4)] flex items-center gap-2 border-2 border-white">
-                            <Save size={16} />
-                            Team Saved!
-                        </div>
                     </div>
                 )}
 

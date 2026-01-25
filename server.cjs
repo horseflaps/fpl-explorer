@@ -130,6 +130,24 @@ app.post('/api/user/teams', (req, res) => {
     });
 });
 
+// Delete a Saved Team
+app.delete('/api/user/teams/:id', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ error: 'Invalid token' });
+
+        const teamId = req.params.id;
+        db.run('DELETE FROM saved_teams WHERE id = ? AND user_id = ?', [teamId, decoded.id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Team not found or unauthorized' });
+            res.json({ message: 'Team deleted' });
+        });
+    });
+});
+
 app.get('/api/team-search', (req, res) => {
     const q = req.query.q;
     console.log(`[API] Searching for: ${q}`);
