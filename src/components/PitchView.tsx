@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus } from '../services/api';
 
@@ -101,6 +102,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
 
 
+
+    // Auth context for saving team
+    const { user, token } = useAuth(); // Assuming useAuth exposes token, if not we need it from somewhere. 
+    // Wait, AuthContext definition: interface AuthContextType { user: User | null; token: string | null; ... }
+    // So logic is correct.
+
+    const [isSaving, setIsSaving] = useState(false);
+    const [savedTeamIds, setSavedTeamIds] = useState<number[]>([]);
+    const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+
     // Fetch Entry Details (Name, history, etc) - only once
     useEffect(() => {
         const fetchEntryDetails = async () => {
@@ -158,6 +169,35 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         };
         fetchEntryDetails();
     }, [entryId]);
+
+    // Check if team is already saved
+    useEffect(() => {
+        const checkSavedTeams = async () => {
+            if (!user || !token) return;
+            try {
+                const res = await fetch('/api/user/teams', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const teams = await res.json();
+                    // Each team has team_data JSON string. We need to parse it to get entry_id
+                    // OR we can make the API return entry_id if we added it as column?
+                    // We didn't add it as column in DB schema, but we inserted it into JSON.
+                    // So we must parse.
+                    const ids = teams.map((t: any) => {
+                        try {
+                            const data = JSON.parse(t.team_data);
+                            return data.entry_id;
+                        } catch { return null; }
+                    }).filter(Boolean);
+                    setSavedTeamIds(ids);
+                }
+            } catch (e) {
+                console.error("Error checking saved teams", e);
+            }
+        };
+        checkSavedTeams();
+    }, [user, token, isSaving]); // Re-check after saving
 
     useEffect(() => {
         const loadPicks = async () => {
@@ -283,6 +323,26 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     }
 
+    const calculateTransfersMade = (original: EntryPicksResponse | null, current: EntryPicksResponse | null): number => {
+        if (!original || !current) return 0;
+
+        // Create Sets of Element IDs for O(1) lookup
+        const originalIds = new Set(original.picks.map(p => p.element));
+        const currentIds = current.picks.map(p => p.element);
+
+        // Count how many current players were NOT in the original team
+        // This effectively counts "In transfers"
+        let transfersIn = 0;
+        currentIds.forEach(id => {
+            if (!originalIds.has(id)) {
+                transfersIn++;
+            }
+        });
+
+        console.log(`[PitchView] Transfers Made Check: ${transfersIn} new players found.`);
+        return transfersIn;
+    };
+
     const handleGeminiAnalysis = async (picksOverride?: EntryPicksResponse) => {
         const picksToUse = picksOverride || picksData;
         if (!picksToUse || !entryData) return;
@@ -291,10 +351,24 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setAiAnalysisText(null); // Clear previous results
 
         try {
-            // Calculate remaining transfers accounting for ghost moves
-            const movesMadeInDraft = ghostPlayerIds.length; // Each ghost ID is a removal
-            // transfersAvailable = Initial (Start of GW) - DraftUsed
-            const transfersLeft = Math.max(0, availableTransfers - movesMadeInDraft);
+            // Calculate accurate transfers made (New Players In)
+            // If picksOverride is provided (Edit Mode), comparing against original picksData.
+            // If not (View Mode), standard is 0 unless we track draft changes differently.
+            // But usually this function is called with 'editedPicks' when "Unleash Wolf" is clicked.
+
+            const transfersMade = calculateTransfersMade(picksData, picksToUse);
+
+            // transfersAvailable = Initial Budget - Transfers Made - Open Slots (Ghost)
+            // Note: Ghost slots are "Pending Transfers Out", so they consume a transfer budget slot effectively.
+            // e.g. 1 FT. Sell Salah (Ghost). Net Budget = 0 (1 used).
+            // e.g. 1 FT. Sell Salah, Buy Saka. Transfers Made = 1. Ghost = 0. Net Budget = 0.
+
+            const movesMadeInDraft = ghostPlayerIds.length;
+            const totalconsumed = transfersMade + movesMadeInDraft;
+
+            const transfersLeft = Math.max(0, availableTransfers - totalconsumed);
+
+            console.log(`[Gemini] Available: ${availableTransfers}, Made: ${transfersMade}, Ghosts: ${movesMadeInDraft} -> Remaining: ${transfersLeft}`);
 
             const prompt = generateGeminiPrompt(data, picksToUse, liveStats, entryData, entryHistory, transfersLeft);
             const result = await fetchGeminiAnalysis(prompt);
@@ -304,6 +378,41 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             setAiAnalysisText(`Error: ${error.message || "Unknown error occurred"}`);
         } finally {
             setIsAiLoading(false);
+        }
+    };
+
+    const handleSaveTeam = async () => {
+        if (!user || !token || !entryData || !picksData) return;
+
+        setIsSaving(true);
+        try {
+            const res = await fetch('/api/user/teams', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    name: `${entryData.name} (GW${selectedGw})`,
+                    entry_id: entryData.id,
+                    team_data: {
+                        manager: entryData.player_first_name + ' ' + entryData.player_last_name,
+                        picks: picksData.picks
+                    }
+                })
+            });
+
+            if (res.ok) {
+                setShowSaveSuccess(true);
+                setTimeout(() => setShowSaveSuccess(false), 3000);
+            } else {
+                alert('Failed to save team.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving team.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -932,7 +1041,42 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             </div>
 
             {/* Gameweek Nav Row */}
-            <div className="max-w-4xl mx-auto flex items-center justify-center gap-6">
+            <div className="max-w-4xl mx-auto flex items-center justify-center gap-6 relative">
+                {/* Save Team Button (Top Left) */}
+                {!isEditingTeam && entryData && !savedTeamIds.includes(entryData.id) && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 group">
+                        <button
+                            onClick={user ? handleSaveTeam : undefined}
+                            disabled={isSaving || !user}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg 
+                                ${user
+                                    ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+                                    : 'bg-slate-800 text-gray-500 cursor-not-allowed border border-slate-700'
+                                }`}
+                        >
+                            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            <span className="hidden md:inline">Save to My Teams</span>
+                        </button>
+
+                        {/* Tooltip for non-logged in users */}
+                        {!user && (
+                            <div className="absolute top-full left-0 mt-2 w-48 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[10px] text-white font-medium text-center">
+                                Log in to save to My Teams
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Success Toast */}
+                {showSaveSuccess && (
+                    <div className="absolute left-0 -top-12 animate-in fade-in slide-in-from-bottom-2 duration-300 z-50">
+                        <div className="bg-[#00ff87] text-[#37003c] px-4 py-2 rounded-lg font-bold text-sm shadow-[0_0_20px_rgba(0,255,135,0.4)] flex items-center gap-2 border-2 border-white">
+                            <Save size={16} />
+                            Team Saved!
+                        </div>
+                    </div>
+                )}
+
                 {!isEditingTeam && (
                     <button
                         onClick={handlePrevGw}

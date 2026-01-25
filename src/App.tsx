@@ -9,8 +9,10 @@ import FixturesView from './components/FixturesView';
 import GameweekLiveView from './components/GameweekLiveView';
 import StandingsView from './components/StandingsView';
 import PitchView from './components/PitchView';
+import MyTeamsView from './components/MyTeamsView';
 import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
+import { AuthProvider } from './context/AuthContext';
 
 function App() {
   const [data, setData] = useState<FPLResponse | null>(null);
@@ -65,20 +67,23 @@ function App() {
   const currentGameweek = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
 
   return (
-    <BrowserRouter>
-      <Layout currentGameweek={currentGameweek}>
-        <Routes>
-          <Route path="/" element={<HomeView />} />
-          <Route path="/players" element={<PlayersView data={data} />} />
-          <Route path="/teams" element={<TeamsView data={data} />} />
-          <Route path="/fixtures" element={<FixturesView data={data} />} />
-          <Route path="/gameweek" element={<GameweekLiveView data={data} />} />
-          <Route path="/standings" element={<StandingsView data={data} />} />
-          <Route path="/my-team" element={<PitchView data={data} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Layout currentGameweek={currentGameweek}>
+          <Routes>
+            <Route path="/" element={<HomeView />} />
+            <Route path="/players" element={<PlayersView data={data} />} />
+            <Route path="/teams" element={<TeamsView data={data} />} />
+            <Route path="/fixtures" element={<FixturesView data={data} />} />
+            <Route path="/gameweek" element={<GameweekLiveView data={data} />} />
+            <Route path="/standings" element={<StandingsView data={data} />} />
+            <Route path="/analyse" element={<PitchView data={data} />} />
+            <Route path="/my-teams" element={<MyTeamsView />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

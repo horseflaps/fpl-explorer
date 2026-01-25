@@ -36,7 +36,7 @@ const HomeView: React.FC = () => {
         /* same logic */
         e.preventDefault();
         if (teamId) {
-            navigate(`/my-team?entry=${teamId}`);
+            navigate(`/analyse?entry=${teamId}`);
         }
     };
 
@@ -145,7 +145,7 @@ const HomeView: React.FC = () => {
                                         {searchResults.map((result) => (
                                             <button
                                                 key={result.team_id}
-                                                onClick={() => navigate(`/my-team?entry=${result.team_id}`)}
+                                                onClick={() => navigate(`/analyse?entry=${result.team_id}`)}
                                                 className="w-full p-3 flex items-center justify-between hover:bg-slate-800 transition-colors group text-left"
                                             >
                                                 <div>
@@ -238,7 +238,7 @@ const HomeView: React.FC = () => {
                                         {leagueData.standings.results.map((entry) => (
                                             <button
                                                 key={entry.id}
-                                                onClick={() => navigate(`/my-team?entry=${entry.entry}`)}
+                                                onClick={() => navigate(`/analyse?entry=${entry.entry}`)}
                                                 className="w-full p-3 flex items-center justify-between hover:bg-slate-800 transition-colors group text-left"
                                             >
                                                 <div>
