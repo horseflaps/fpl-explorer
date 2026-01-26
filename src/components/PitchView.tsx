@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Shirt, Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save } from 'lucide-react';
-import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry } from '../types/fpl';
-import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus } from '../services/api';
+import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw } from 'lucide-react';
+import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse } from '../types/fpl';
+import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName } from '../services/api';
 
 
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
@@ -59,6 +59,66 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
         console.log(`[PitchView] Calculated Transfers for GW${targetGw}: ${available}`);
         return available;
+    };
+
+
+    // Search State
+    const navigate = useNavigate();
+    const [searchMode, setSearchMode] = useState<'name' | 'team' | 'league'>('name');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [teamIdInput, setTeamIdInput] = useState('');
+    const [leagueId, setLeagueId] = useState('');
+    const [leagueData, setLeagueData] = useState<LeagueStandingsResponse | null>(null);
+    const [isSearchLoading, setIsSearchLoading] = useState(false);
+    const [searchError, setSearchError] = useState<string | null>(null);
+
+    const handleNameSearch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (searchTerm.length < 2) return;
+
+        setIsSearchLoading(true);
+        setSearchError(null);
+        try {
+            const results = await searchTeamsByName(searchTerm);
+            setSearchResults(results);
+            if (results.length === 0) setSearchError('No teams found matching that name.');
+        } catch (err) {
+            setSearchError('Search failed. Try again.');
+        } finally {
+            setIsSearchLoading(false);
+        }
+    };
+
+    const handleTeamSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (teamIdInput) {
+            navigate(`/analyse?entry=${teamIdInput}`);
+        }
+    };
+
+    const handleLeagueSearch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!leagueId) return;
+
+        setIsSearchLoading(true);
+        setSearchError(null);
+        setLeagueData(null);
+
+        try {
+            const data = await fetchLeagueStandings(Number(leagueId));
+            setLeagueData(data);
+        } catch (err) {
+            setSearchError('League not found. Check the ID.');
+        } finally {
+            setIsSearchLoading(false);
+        }
+    };
+
+    const handleReset = () => {
+        localStorage.removeItem('last_analysed_entry');
+        navigate('/analyse');
+        window.location.reload();
     };
 
 
@@ -154,7 +214,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                 // Fetch Transfer Status (for available free transfers)
                 try {
-                    const status = await fetchTransferStatus(entryId);
+                    const status = await fetchTransferStatus(activeEntryId);
                     // "limit" usually usually holds the number of free transfers available? 
                     // Actually the API response for transfers-status is confusing sometimes.
                     // But usually if public, it might just return null.
@@ -324,11 +384,208 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
 
+    // Render Search UI if no entry selected
     if (!entryId) {
         return (
-            <div className="flex flex-col items-center justify-center h-96 text-gray-400">
-                <Shirt size={48} className="mb-4 text-gray-600" />
-                <p>No Team ID provided.</p>
+            <div className="max-w-4xl mx-auto text-center space-y-8 animate-in fade-in zoom-in duration-500 py-12">
+                <div className="space-y-6">
+                    <h2 className="text-4xl font-black text-white tracking-tight">Manager Hub</h2>
+                    <p className="text-gray-400 max-w-lg mx-auto">
+                        Enter your Team ID directly, or find yourself by searching your Mini-League.
+                    </p>
+
+                    {/* Toggle */}
+                    <div className="flex justify-center mb-8">
+                        <div className="bg-slate-900 p-1 rounded-xl border border-slate-700 flex gap-1">
+                            <button
+                                onClick={() => setSearchMode('name')}
+                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${searchMode === 'name'
+                                    ? 'bg-fpl-green text-slate-900 shadow-lg'
+                                    : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                    }`}
+                            >
+                                Search Name
+                            </button>
+                            <button
+                                onClick={() => setSearchMode('league')}
+                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${searchMode === 'league'
+                                    ? 'bg-fpl-green text-slate-900 shadow-lg'
+                                    : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                    }`}
+                            >
+                                By League
+                            </button>
+                            <button
+                                onClick={() => setSearchMode('team')}
+                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${searchMode === 'team'
+                                    ? 'bg-fpl-green text-slate-900 shadow-lg'
+                                    : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                    }`}
+                            >
+                                By ID
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="max-w-md mx-auto min-h-[160px]">
+                        {searchMode === 'name' ? (
+                            <div className="animate-in fade-in slide-in-from-left-4 duration-300 space-y-4">
+                                <form onSubmit={handleNameSearch}>
+                                    <label className="block text-sm font-bold text-gray-300 mb-2 text-left">
+                                        Search Team or Manager Name
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <Search className="h-5 w-5 text-gray-500" />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                placeholder="e.g. The Wolf"
+                                                className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-fpl-green focus:ring-1 focus:ring-fpl-green transition-all"
+                                            />
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            disabled={searchTerm.length < 2 || isSearchLoading}
+                                            className="bg-fpl-green text-slate-900 font-bold px-6 py-3 rounded-xl hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-fpl-green/10"
+                                        >
+                                            {isSearchLoading ? <Loader2 className="animate-spin" /> : 'Find'}
+                                        </button>
+                                    </div>
+                                </form>
+
+                                {searchError && (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+                                        <AlertCircle size={16} />
+                                        {searchError}
+                                    </div>
+                                )}
+
+                                {searchResults.length > 0 && (
+                                    <div className="bg-slate-900/80 backdrop-blur-md rounded-xl border border-slate-700 overflow-hidden text-left animate-in slide-in-from-bottom-2">
+                                        <div className="p-3 border-b border-slate-700 bg-slate-950/50">
+                                            <p className="text-xs text-gray-400 uppercase font-black tracking-widest">Matching Managers</p>
+                                        </div>
+                                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/50">
+                                            {searchResults.map((result) => (
+                                                <button
+                                                    key={result.team_id}
+                                                    onClick={() => navigate(`/analyse?entry=${result.team_id}`)}
+                                                    className="w-full p-3 flex items-center justify-between hover:bg-slate-800 transition-colors group text-left"
+                                                >
+                                                    <div>
+                                                        <div className="font-bold text-sm text-white group-hover:text-fpl-green transition-colors">
+                                                            {result.team_name}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {result.manager_name}
+                                                        </div>
+                                                    </div>
+                                                    <ChevronRight size={16} className="text-gray-600 group-hover:text-fpl-green" />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : searchMode === 'team' ? (
+                            <form onSubmit={handleTeamSearch} className="animate-in fade-in slide-in-from-left-4 duration-300">
+                                <label className="block text-sm font-bold text-gray-300 mb-2 text-left">
+                                    Enter your Team ID
+                                </label>
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <Search className="h-5 w-5 text-gray-500" />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={teamIdInput}
+                                            onChange={(e) => setTeamIdInput(e.target.value.replace(/\D/g, ''))}
+                                            placeholder="e.g. 123456"
+                                            className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-fpl-green focus:ring-1 focus:ring-fpl-green transition-all"
+                                        />
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={!teamIdInput}
+                                        className="bg-fpl-green text-slate-900 font-bold px-6 py-3 rounded-xl hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-fpl-green/10"
+                                    >
+                                        Go
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
+                                <form onSubmit={handleLeagueSearch}>
+                                    <label className="block text-sm font-bold text-gray-300 mb-2 text-left">
+                                        Enter League ID
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <Users className="h-5 w-5 text-gray-500" />
+                                            </div>
+                                            <input
+                                                type="number"
+                                                value={leagueId}
+                                                onChange={(e) => setLeagueId(e.target.value)}
+                                                placeholder="e.g. 314"
+                                                className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-fpl-green focus:ring-1 focus:ring-fpl-green transition-all"
+                                            />
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            disabled={!leagueId || isSearchLoading}
+                                            className="bg-fpl-green text-slate-900 font-bold px-6 py-3 rounded-xl hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-fpl-green/10"
+                                        >
+                                            {isSearchLoading ? <Loader2 className="animate-spin" /> : 'Find'}
+                                        </button>
+                                    </div>
+                                </form>
+
+                                {searchError && (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+                                        <AlertCircle size={16} />
+                                        {searchError}
+                                    </div>
+                                )}
+
+                                {leagueData && (
+                                    <div className="bg-slate-900/80 backdrop-blur-md rounded-xl border border-slate-700 overflow-hidden text-left animate-in slide-in-from-bottom-2">
+                                        <div className="p-3 border-b border-slate-700 bg-slate-950/50">
+                                            <h3 className="font-bold text-white truncate">{leagueData.league.name}</h3>
+                                            <p className="text-xs text-gray-400">Select yourself from the list:</p>
+                                        </div>
+                                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/50">
+                                            {leagueData.standings.results.map((entry) => (
+                                                <button
+                                                    key={entry.id}
+                                                    onClick={() => navigate(`/analyse?entry=${entry.entry}`)}
+                                                    className="w-full p-3 flex items-center justify-between hover:bg-slate-800 transition-colors group text-left"
+                                                >
+                                                    <div>
+                                                        <div className="font-bold text-sm text-white group-hover:text-fpl-green transition-colors">
+                                                            {entry.entry_name}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {entry.player_name}
+                                                        </div>
+                                                    </div>
+                                                    <ChevronRight size={16} className="text-gray-600 group-hover:text-fpl-green" />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         );
     }
@@ -904,7 +1161,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             {isSub && <span className="absolute -left-2 text-[10px] text-yellow-400 rotate-90 origin-right">SUB</span>}
                                             <div className="relative">
                                                 <img
-                                                    src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}-66.png`}
+                                                    src={`https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_${team.code}${player.element_type === 1 ? '_1' : ''}-66.png`}
                                                     alt={team.name}
                                                     className="w-8 h-8 object-contain"
                                                 />
@@ -1060,13 +1317,58 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         );
     };
 
-    return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
-            {/* Top Row: Team Name */}
-            <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2 flex flex-col md:flex-row items-center md:items-end gap-3 justify-center md:justify-start">
-                <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
 
-                {/* Success Toast - Now next to name */}
+
+
+    const calculateWolfRating = (entry: Entry): number => {
+        let score = 0;
+
+        // 1. Rank (Max 50)
+        const rank = entry.summary_overall_rank ?? 10000000;
+        if (rank < 10000) score += 50;
+        else if (rank < 100000) score += 45;
+        else if (rank < 500000) score += 40;
+        else if (rank < 1000000) score += 35;
+        else if (rank < 2000000) score += 25;
+        else if (rank < 4000000) score += 15;
+        else score += 5;
+
+        // 2. Value (Max 30) - API value is in tenths (1000 = 100.0)
+        const value = entry.last_deadline_value ?? 1000;
+        if (value > 1050) score += 30;     // > 105.0
+        else if (value > 1040) score += 25; // > 104.0
+        else if (value > 1030) score += 20;
+        else if (value > 1020) score += 15;
+        else if (value > 1010) score += 10;
+        else score += 5;
+
+        // 3. Form / GW Rank (Max 20)
+        const gwRank = entry.summary_event_rank ?? 8000000;
+        if (gwRank < 500000) score += 20;
+        else if (gwRank < 1000000) score += 15;
+        else if (gwRank < 2000000) score += 10;
+        else if (gwRank < 4000000) score += 5;
+
+        return Math.min(100, score);
+    };
+
+    return (
+        <div className="relative space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
+            {/* Top Row: Team Name & Rating */}
+            <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2 flex flex-col md:flex-row items-center md:items-end gap-3 justify-center md:justify-start">
+                <div className="flex items-center gap-3">
+                    <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
+                    {entryData && (
+                        <div className="bg-slate-800 border border-white/10 rounded-lg px-3 py-1 flex items-center gap-2 transform -skew-x-6 shadow-lg">
+                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest not-italic skew-x-6">Wolf's Rating</span>
+                            <span className={`text-lg font-black not-italic skew-x-6 ${calculateWolfRating(entryData) >= 80 ? 'text-[#00ff87]' : calculateWolfRating(entryData) >= 60 ? 'text-[#02efff]' : 'text-yellow-400'}`}>
+                                {calculateWolfRating(entryData)}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Success Toast */}
                 {showSaveSuccess && (
                     <div className="animate-in fade-in slide-in-from-left-2 duration-300">
                         <div className="bg-[#00ff87] text-[#37003c] px-3 py-1 rounded-full font-bold text-xs shadow-[0_0_15px_rgba(0,255,135,0.4)] flex items-center gap-1.5 border border-white/50">
@@ -1079,6 +1381,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             {/* Gameweek Nav Row */}
             <div className="max-w-4xl mx-auto flex items-center justify-center gap-6 relative">
+                {/* Search Different Team Button (Right Side) */}
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
+                    <button
+                        onClick={handleReset}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white text-xs font-bold transition-all border border-slate-700"
+                    >
+                        <RefreshCw size={14} />
+                        <span className="hidden md:inline">Search Different Team</span>
+                    </button>
+                </div>
                 {/* Save Team Button (Top Left) */}
                 {!isEditingTeam && entryData && !savedTeamIds.includes(entryData.id) && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 group">
