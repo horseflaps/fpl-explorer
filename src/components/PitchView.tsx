@@ -1319,35 +1319,40 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
 
 
-
     const calculateWolfRating = (entry: Entry): number => {
         let score = 0;
-
-        // 1. Rank (Max 50)
         const rank = entry.summary_overall_rank ?? 10000000;
-        if (rank < 10000) score += 50;
-        else if (rank < 100000) score += 45;
-        else if (rank < 500000) score += 40;
-        else if (rank < 1000000) score += 35;
-        else if (rank < 2000000) score += 25;
-        else if (rank < 4000000) score += 15;
-        else score += 5;
-
-        // 2. Value (Max 30) - API value is in tenths (1000 = 100.0)
         const value = entry.last_deadline_value ?? 1000;
-        if (value > 1050) score += 30;     // > 105.0
-        else if (value > 1040) score += 25; // > 104.0
-        else if (value > 1030) score += 20;
-        else if (value > 1020) score += 15;
-        else if (value > 1010) score += 10;
-        else score += 5;
-
-        // 3. Form / GW Rank (Max 20)
         const gwRank = entry.summary_event_rank ?? 8000000;
-        if (gwRank < 500000) score += 20;
-        else if (gwRank < 1000000) score += 15;
-        else if (gwRank < 2000000) score += 10;
-        else if (gwRank < 4000000) score += 5;
+
+        // 1. Rank Score (Max 80)
+        if (rank <= 100) score = 80;
+        else if (rank <= 1000) score = 75;
+        else if (rank <= 10000) score = 70;
+        else if (rank <= 50000) score = 65;
+        else if (rank <= 100000) score = 60;
+        else if (rank <= 500000) score = 50;
+        else if (rank <= 1000000) score = 40;
+        else if (rank <= 2000000) score = 30;
+        else score = 10;
+
+        // 2. Value Bonus (Max 15)
+        if (value >= 1060) score += 15;      // > 106.0
+        else if (value >= 1050) score += 12;
+        else if (value >= 1040) score += 9;
+        else if (value >= 1030) score += 6;
+        else if (value >= 1020) score += 3;
+
+        // 3. Form Bonus (Max 5)
+        if (gwRank < 100000) score += 5;
+        else if (gwRank < 1000000) score += 2;
+
+        // 4. ELITE OVERRIDES (The "Wolf Respect" Clause)
+        // If you are top tier, you cannot have a bad rating, period.
+        if (rank <= 10) return Math.max(score, 99);    // World #1-10 is basically perfect
+        if (rank <= 100) return Math.max(score, 95);   // Top 100 is god tier
+        if (rank <= 1000) return Math.max(score, 90);  // Top 1k is legendary
+        if (rank <= 10000) return Math.max(score, 85); // Top 10k is elite
 
         return Math.min(100, score);
     };
