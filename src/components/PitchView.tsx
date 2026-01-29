@@ -654,7 +654,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             console.log(`[Gemini] Available: ${availableTransfers}, Made: ${transfersMade}, Ghosts: ${movesMadeInDraft} -> Remaining: ${transfersLeft}`);
 
-            const prompt = generateGeminiPrompt(data, picksToUse, liveStats, entryData, entryHistory, transfersLeft);
+            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft);
             const result = await fetchGeminiAnalysis(prompt);
             setAiAnalysisText(result);
         } catch (error: any) {

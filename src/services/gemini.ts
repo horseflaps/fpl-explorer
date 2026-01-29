@@ -3,7 +3,6 @@ import type { FPLResponse, EntryPicksResponse, Entry, LiveStats } from '../types
 export const generateGeminiPrompt = (
     data: FPLResponse,
     picks: EntryPicksResponse,
-    liveStats: Record<number, LiveStats>,
     entry: Entry,
     history: any,
     transfersAvailable: number // New parameter
