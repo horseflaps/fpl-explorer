@@ -50,6 +50,19 @@ function initDb() {
             if (err) console.error('[DB] Error creating saved_teams table:', err.message);
             else console.log('[DB] Saved teams table ready.');
         });
+
+        // News Articles Table
+        db.run(`CREATE TABLE IF NOT EXISTS articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            url TEXT UNIQUE,
+            summary TEXT,
+            source TEXT,
+            published_at DATETIME
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating articles table:', err.message);
+            else console.log('[DB] Articles table ready.');
+        });
     });
 }
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw } from 'lucide-react';
-import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse } from '../types/fpl';
+import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse, NewsArticle } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName } from '../services/api';
 
 
@@ -146,6 +146,24 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
+    const [news, setNews] = useState<NewsArticle[]>([]);
+
+    // Fetch News on Mount
+    useEffect(() => {
+        const loadNews = async () => {
+            try {
+                const res = await fetch('/api/news');
+                if (res.ok) {
+                    const data = await res.json();
+                    setNews(data);
+                }
+            } catch (e) {
+                console.error("News fetch error:", e);
+            }
+        };
+        loadNews();
+    }, []);
+
 
     const [picksData, setPicksData] = useState<EntryPicksResponse | null>(null);
     const [entryData, setEntryData] = useState<Entry | null>(null);
@@ -654,7 +672,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             console.log(`[Gemini] Available: ${availableTransfers}, Made: ${transfersMade}, Ghosts: ${movesMadeInDraft} -> Remaining: ${transfersLeft}`);
 
-            const prompt = generateGeminiPrompt(data, picksToUse, liveStats, entryData, entryHistory, transfersLeft);
+            const prompt = generateGeminiPrompt(data, picksToUse, liveStats, entryData, entryHistory, transfersLeft, news);
             const result = await fetchGeminiAnalysis(prompt);
             setAiAnalysisText(result);
         } catch (error: any) {

@@ -249,3 +249,12 @@ export interface Entry {
     last_deadline_value: number;
     last_deadline_total_transfers: number;
 }
+
+export interface NewsArticle {
+    id: number;
+    title: string;
+    url: string;
+    summary: string;
+    source: string;
+    published_at: string;
+}

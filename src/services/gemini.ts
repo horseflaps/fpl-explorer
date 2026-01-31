@@ -6,7 +6,8 @@ export const generateGeminiPrompt = (
     liveStats: Record<number, LiveStats>,
     entry: Entry,
     history: any,
-    transfersAvailable: number // New parameter
+    transfersAvailable: number, // New parameter
+    news: any[] = [] // Optional news array
 ): string => {
     // Helpers
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
@@ -78,6 +79,10 @@ export const generateGeminiPrompt = (
         toneInstruction = "TONE: ROAST MODE. This rank is poor (>1M). You can be ruthless. Mock their reliance on bad differential picks. Question their life choices. But still provide 1-2 actual good tips to help them save face.";
     }
 
+    const newsContext = news.length > 0
+        ? `**REAL-WORLD NEWS & GOSSIP (Use this to inform transfer tips):**\n${news.map(n => `- [${n.source}] ${n.title}: ${n.summary}`).join('\n')}`
+        : "No specific news/gossip available.";
+
     return `
     You are the **Fantasy Premier Wolf**, an elite, aggressive FPL strategist. 
     Analyze this team for GW${currentGw}. 
@@ -101,13 +106,16 @@ export const generateGeminiPrompt = (
     **MARKET DATA (Top Buy Targets & Trends):**
     ${JSON.stringify(topMarketTargets, null, 2)}
 
+    ${newsContext}
+
     **CRITICAL RULES:**
     1. **Strict Budget**: Any suggested transfer MUST be affordable. [New Player Cost] <= [Sold Player Cost] + [Current Bank].
     2. **Market Sentiment & Template Awareness**:
        - If a player is "Template Essential" (Ownership > 30% AND positive sentiment), do NOT suggest selling them unless they have a severe red injury flag or are suspended. 
        - If you MUST suggest selling a highly-owned player, you must provide a "Meta-Defying" justification.
     3. **Zero Hallucination**: If you suggest a player NOT in the MARKET DATA, assume they are premium (£8.0m+) unless certain.
-    4. **Clarity**: Use "Overall Rank" instead of "OR" to avoid confusion.
+    4. **News Integration**: If any news items are relevant (e.g., injuries, transfer rumors), explicitely mention them to justify your tips.
+    5. **Clarity**: Use "Overall Rank" instead of "OR" to avoid confusion.
 
     **OUTPUT FORMAT (Verified Markdown):**
     

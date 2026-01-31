@@ -180,6 +180,15 @@ app.get('/api/team-search', (req, res) => {
     });
 });
 
+// Get News Articles (for AI Context)
+app.get('/api/news', (req, res) => {
+    // Return top 20 most recent articles
+    db.all("SELECT source, title, summary FROM articles ORDER BY published_at DESC LIMIT 20", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 // FPL API Proxy
 app.use('/api', async (req, res) => {
     // This catches everything else under /api that wasn't handled above
@@ -238,6 +247,11 @@ if (process.env.NODE_ENV === 'production') {
         res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
 }
+
+const { initScheduler } = require('./server/scheduler.cjs');
+
+// Initialize Scheduler
+initScheduler();
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
