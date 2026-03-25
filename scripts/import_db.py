@@ -48,7 +48,9 @@ def init_db(conn, update_mode=False):
             id INTEGER PRIMARY KEY,
             team_id INTEGER UNIQUE,
             team_name TEXT,
-            manager_name TEXT
+            manager_name TEXT,
+            rank INTEGER,
+            total_points INTEGER
         )
     """)
     
@@ -106,15 +108,17 @@ def import_csv(csv_file, update_mode=False):
                     batch_data.append((
                         int(row['Team ID']),
                         row['Team Name'],
-                        row['Manager Name']
+                        row['Manager Name'],
+                        row.get('Current Rank'),
+                        row.get('Total Points')
                     ))
                 except (ValueError, KeyError) as e:
                     continue # Skip bad rows
 
                 if len(batch_data) >= BATCH_SIZE:
                     cursor.executemany("""
-                        INSERT OR REPLACE INTO teams (team_id, team_name, manager_name)
-                        VALUES (?, ?, ?)
+                    INSERT OR REPLACE INTO teams (team_id, team_name, manager_name, rank, total_points)
+                    VALUES (?, ?, ?, ?, ?)
                     """, batch_data)
                     conn.commit()
                     total_imported += len(batch_data)
@@ -127,8 +131,8 @@ def import_csv(csv_file, update_mode=False):
             # Insert remaining
             if batch_data:
                 cursor.executemany("""
-                    INSERT OR REPLACE INTO teams (team_id, team_name, manager_name)
-                    VALUES (?, ?, ?)
+                    INSERT OR REPLACE INTO teams (team_id, team_name, manager_name, rank, total_points)
+                    VALUES (?, ?, ?, ?, ?)
                 """, batch_data)
                 conn.commit()
                 total_imported += len(batch_data)

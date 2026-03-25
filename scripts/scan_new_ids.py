@@ -46,15 +46,16 @@ def scan_new_teams(dry_run=False):
                 manager_first = data.get('player_first_name', '')
                 manager_last = data.get('player_last_name', '')
                 manager_name = f"{manager_first} {manager_last}".strip()
-                # rank = data.get('summary_overall_rank') # Removed from DB
+                rank = data.get('summary_overall_rank')
+                points = data.get('summary_overall_points')
                 
-                logging.info(f"Found new team! ID: {current_id} | Name: {team_name}")
+                logging.info(f"Found new team! ID: {current_id} | Name: {team_name} | Rank: {rank}")
                 
                 if not dry_run:
                     cursor.execute("""
-                        INSERT OR REPLACE INTO teams (team_id, team_name, manager_name)
-                        VALUES (?, ?, ?)
-                    """, (current_id, team_name, manager_name))
+                        INSERT OR REPLACE INTO teams (team_id, team_name, manager_name, rank, total_points)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (current_id, team_name, manager_name, rank, points))
                     conn.commit()
                 
                 new_teams_found += 1

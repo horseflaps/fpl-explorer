@@ -1,0 +1,30 @@
+
+
+
+Analyse Team
+
+Quantity	Total Price	Price Per Unit	Discount / Savings
+1				£2.00		£2.00				None
+3				£5.00		£1.67			Save £1.00 (16% off)
+5				£7.50		£1.50			Save £2.50 (25% off)
+10				£12.50		£1.25			Save £7.50 (37% off)
+50				£50.00		£1.00			Save £50.00(50% off)
+
+
+Join 
+
+Tier 1 - Free - Manual changes
+You run the analysis manually, you make the changes in fantasypremierleague manually
+
+
+
+Tier 2 - £5/month - Semi-automatic
+You run the analysis manually, The Wolf makes the changes to your fantasy team
+
+
+
+Tier 3 - Fully automatic - £10/month  or £90 per season pro rata 
+The Wolf runs the analysis for you before the deadline of every game week and automatically makes the changes to your team and email you a log of changes made 
+
+
+

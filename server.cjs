@@ -180,6 +180,52 @@ app.get('/api/team-search', (req, res) => {
     });
 });
 
+// --- Past Analyses Routes ---
+
+app.get('/api/user/analyses', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ error: 'Invalid token' });
+        db.all('SELECT id, team_name, entry_id, gameweek, analysis_text, created_at FROM analyses WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [decoded.id], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
+    });
+});
+
+app.post('/api/user/analyses', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ error: 'Invalid token' });
+        const { team_name, entry_id, gameweek, analysis_text } = req.body;
+        if (!analysis_text) return res.status(400).json({ error: 'analysis_text required' });
+        db.run('INSERT INTO analyses (user_id, team_name, entry_id, gameweek, analysis_text) VALUES (?, ?, ?, ?, ?)',
+            [decoded.id, team_name || 'Unknown', entry_id || null, gameweek || null, analysis_text],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.status(201).json({ id: this.lastID });
+            });
+    });
+});
+
+app.delete('/api/user/analyses/:id', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ error: 'Invalid token' });
+        db.run('DELETE FROM analyses WHERE id = ? AND user_id = ?', [req.params.id, decoded.id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Not found or unauthorized' });
+            res.json({ message: 'Deleted' });
+        });
+    });
+});
+
 // Get News Articles (for AI Context)
 app.get('/api/news', (req, res) => {
     // Return top 20 most recent articles

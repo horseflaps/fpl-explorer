@@ -27,3 +27,6 @@ dist-ssr
 # Data
 *.csv
 *.db
+
+# Sensitive word lists
+server/slurs.cjs

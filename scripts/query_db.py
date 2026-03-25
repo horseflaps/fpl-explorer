@@ -48,12 +48,14 @@ def query_db(search_term=None, limit=10):
             mgr_name = row[3]
             rank = row[4]
             pts = row[5]
+            rank_str = str(rank) if rank is not None else "-"
+            pts_str = str(pts) if pts is not None else "-"
             
             # Truncate long names for display
             if len(t_name) > 28: t_name = t_name[:25] + "..."
             if len(mgr_name) > 28: mgr_name = mgr_name[:25] + "..."
 
-            print(f"{rank:<8} {t_id:<10} {mgr_name:<30} {t_name:<30} {pts:<8}")
+            print(f"{rank_str:<8} {t_id:<10} {mgr_name:<30} {t_name:<30} {pts_str:<8}")
 
     except Exception as e:
         print(f"Error: {e}")

@@ -1,69 +1,108 @@
 const puppeteer = require('puppeteer');
 const db = require('./db.cjs');
 const crypto = require('crypto');
+const robotsParser = require('robots-parser');
+const https = require('https');
+const http = require('http');
 
 // News Sources
 const SOURCES = [
     {
         name: 'BBC Sport',
         url: 'https://www.bbc.com/sport/football/gossip',
-        selector: '[data-component="text-block"]',
+        selector: 'p, article p, div[data-component="text-block"]',
         parser: (text) => text.trim()
     },
     {
         name: 'Sky Sports',
         url: 'https://www.skysports.com/football/transfer-paper-talk',
-        selector: '.sdc-article-body p',
+        selector: '.sdc-article-body p, .sdc-news-article-body--lead p',
         parser: (text) => text.trim()
     },
     {
         name: 'NewsNow',
         url: 'https://www.newsnow.co.uk/h/Sport/Football/Gossip',
-        selector: '.newsfeed a.hll',
+        selector: 'a.hll, .newsfeed-article-link, .newsfeed a',
         parser: (text) => text.trim()
     },
     {
         name: 'The Guardian',
         url: 'https://www.theguardian.com/football/series/rumourmill',
-        selector: 'a.u-faux-block-link__overlay',
+        selector: 'a[data-link-name="article"], h3 span, .dcr-1698686 a, article p',
         parser: (text) => text.trim()
     },
     {
         name: 'SportsMole',
         url: 'https://www.sportsmole.co.uk/football/premier-league/',
-        selector: '.sm-news-title a',
-        parser: (text) => text.trim()
-    },
-    {
-        name: 'Football Transfer League',
-        url: 'https://www.footballtransferleague.co.uk/football_rumours',
-        selector: '.rumour_text',
+        selector: '.sm-news-title a, a[href*="/football/"] span, .sm-news-body, p',
         parser: (text) => text.trim()
     },
     {
         name: 'TransferFeed',
         url: 'https://www.transferfeed.com/',
-        selector: '.title-link',
+        selector: '.title-link, a.title, .article-title a, .post-title, h2, h3, p',
+        parser: (text) => text.trim()
+    },
+    {
+        name: 'Transfer League',
+        url: 'https://www.transferleague.co.uk/',
+        selector: '.news-content p, .article-content p, h3 a, p, td',
+        parser: (text) => text.trim()
+    },
+    {
+        name: 'FBref',
+        url: 'https://fbref.com/en/',
+        selector: '.news_item, .news_article p',
+        parser: (text) => text.trim()
+    },
+    {
+        name: 'Transfermarkt',
+        url: 'https://www.transfermarkt.co.uk/',
+        selector: '.news-teaser p, .news-headline',
+        parser: (text) => text.trim()
+    },
+    {
+        name: 'WhoScored / Sofascore',
+        url: 'https://www.whoscored.com/',
+        selector: '#news-feed p, .news-item a',
         parser: (text) => text.trim()
     }
 ];
 
-// Keywords to exclude non-football/spam content
+const slurs = require('./slurs.cjs');
+
 const BLACKLIST = [
     'Trump', 'Starmer', 'Biden', 'Sunak', 'Parliament', 'Senate', 'White House',
     'War', 'Gaza', 'Israel', 'Ukraine', 'Russia', 'China', 'Economy', 'Inflation',
     'Stock Market', 'Election', 'Vote', 'Poll', 'Crisis', 'Epstein', 'Prince',
     'Royal', 'Climate', 'Weather', 'WWE', 'Wrestling', 'Cricket', 'T20', 'Test Match',
     'Rugby', 'F1', 'Formula 1', 'Tennis', 'Djokovic', 'Nadal', 'Murray', 'Boxing',
-    'UFC', 'MMA', 'NFL', 'Super Bowl', 'NBA'
+    'UFC', 'MMA', 'NFL', 'Super Bowl', 'NBA',
+    'Gambling', 'Gamble', 'GambleAware', 'BeGambleAware', 'Gambling Therapy',
+    'Responsible Gambling', 'Betting', 'Monte Carlo', 'Casino', 'Poker',
+    'Odds', 'Wager', 'Bookmaker', 'Accumulator', 'Each Way',
+    // War & conflict
+    'Airstrike', 'Missile', 'Nuclear', 'Military', 'Troops', 'Invasion',
+    'Ceasefire', 'Refugee', 'Sanctions', 'Bomb', 'Hostage', 'Kidnap',
+    'Terrorist', 'Terrorism', 'Terror Attack',
+    // Public tragedies
+    'Shooting', 'Gunman', 'Massacre', 'Stabbing', 'Explosion', 'Disaster',
+    'Earthquake', 'Tsunami', 'Wildfire', 'Flood', 'Famine', 'Genocide',
+    // Racism & discrimination
+    'Racist', 'Racism', 'Hate Crime', 'Antisemitic', 'Islamophobic',
+    'White Supremac', 'Far Right', 'Neo-Nazi', 'Discrimination',
+    // Sexism & misogyny
+    'Sexist', 'Sexism', 'Misogyn', 'Sexual Harassment', 'Sexual Assault',
+    'Rape', 'Domestic Abuse', 'Gender Violence',
+    ...slurs,
 ];
 
 function isSafeArticle(text) {
+    if (!text || text.length < 20) return false;
     const lower = text.toLowerCase();
     return !BLACKLIST.some(word => lower.includes(word.toLowerCase()));
 }
 
-// Helper to clean old articles (retention policy: 14 days)
 function pruneOldArticles() {
     const twoWeeksAgo = new Date();
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
@@ -75,52 +114,140 @@ function pruneOldArticles() {
     });
 }
 
+// Map to cache txt contents
+const robotsCache = new Map();
+
+async function isAllowedByRobots(urlStr, userAgent) {
+    try {
+        const parsed = new URL(urlStr);
+        const robotsUrl = `${parsed.protocol}//${parsed.host}/robots.txt`;
+        
+        let robotsTxt = robotsCache.get(robotsUrl);
+        
+        if (!robotsTxt) {
+            robotsTxt = await new Promise((resolve) => {
+                const reqLib = parsed.protocol === 'https:' ? https : http;
+                const req = reqLib.get(robotsUrl, { timeout: 5000 }, (res) => {
+                    if (res.statusCode !== 200) {
+                        resolve('');
+                        return;
+                    }
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => resolve(data));
+                });
+                req.on('error', () => resolve(''));
+                req.on('timeout', () => { req.destroy(); resolve(''); });
+            });
+            robotsCache.set(robotsUrl, robotsTxt);
+        }
+
+        if (!robotsTxt) return true; // If unreachable, assume allowed
+
+        const robots = robotsParser(robotsUrl, robotsTxt);
+        const isAllowed = robots.isAllowed(urlStr, userAgent);
+        return isAllowed !== false; // if undefined, it's allowed
+    } catch (e) {
+        console.warn(`[Scraper] Could not verify robots.txt for ${urlStr}: ${e.message}`);
+        return true;
+    }
+}
+
+// Random delay helper
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
 async function scrapeNews() {
     console.log('[Scraper] Starting news scrape...');
     let browser;
     try {
         browser = await puppeteer.launch({
-            headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            headless: 'new',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--window-size=1920,1080'
+            ]
         });
+        
         const page = await browser.newPage();
+        
+        const customUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+        await page.setUserAgent(customUA);
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
+        });
+
+        // Hide webdriver
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        });
 
         for (const source of SOURCES) {
+            console.log(`[Scraper] Checking robots.txt for ${source.name}...`);
+            const allowed = await isAllowedByRobots(source.url, customUA);
+            
+            if (!allowed) {
+                console.log(`[Scraper] Skipping ${source.name} - Disallowed by robots.txt`);
+                continue;
+            }
+
             console.log(`[Scraper] Scraping ${source.name}...`);
             try {
-                await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                // Special handling for the index-based sources (BBC)
+                if (source.name === 'BBC Sport' && source.url.includes('/gossip')) {
+                    await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                    const latestUrl = await page.evaluate(() => {
+                        const links = Array.from(document.querySelectorAll('a'));
+                        const gossipLink = links.find(a => a.href.includes('/articles/') && a.textContent.toLowerCase().includes('gossip'));
+                        return gossipLink ? gossipLink.href : null;
+                    });
+                    
+                    if (latestUrl) {
+                        console.log(`[Scraper] Found latest BBC gossip link: ${latestUrl}`);
+                        await delay(2000); // polite pause
+                        await page.goto(latestUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                    }
+                } else {
+                    await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                }
 
-                // Get text content based on selector
+                // Wait for SPA or dynamically loaded content (e.g. React/Vue sites)
+                await delay(3000);
+
+                // Generic text extraction
                 const rawData = await page.evaluate((sel) => {
                     const elements = document.querySelectorAll(sel);
-                    return Array.from(elements).map(el => el.textContent).filter(t => t.length > 20);
+                    return Array.from(elements)
+                        .map(el => el.textContent.trim())
+                        .filter(t => t.length > 30);
                 }, source.selector);
 
                 console.log(`[Scraper] Found ${rawData.length} items from ${source.name}`);
 
-                // Store in DB
                 const stmt = db.prepare("INSERT OR IGNORE INTO articles (title, url, summary, source, published_at) VALUES (?, ?, ?, ?, ?)");
 
                 let addedCount = 0;
                 rawData.forEach(text => {
-                    // Filter out non-football/blacklist items
-                    if (!isSafeArticle(text)) {
-                        return;
-                    }
+                    if (!isSafeArticle(text)) return;
 
-                    // Basic heuristic: First sentence is title, rest is summary
+                    text = text.replace(/\s+/g, ' ').trim();
+
                     const splitIndex = text.indexOf('.');
                     let title = text;
                     let summary = text;
 
-                    if (splitIndex > 5 && splitIndex < 100) {
+                    if (splitIndex > 5 && splitIndex < 150) {
                         title = text.substring(0, splitIndex + 1);
-                        summary = text;
-                    } else if (text.length > 100) {
-                        title = text.substring(0, 97) + '...';
+                    } else if (text.length > 150) {
+                        title = text.substring(0, 147) + '...';
                     }
 
-                    // Use MD5 hash for unique ID
                     const hash = crypto.createHash('md5').update(text).digest('hex');
                     const uniqueId = `${source.url}#${hash}`;
 
@@ -130,6 +257,11 @@ async function scrapeNews() {
 
                 stmt.finalize();
                 console.log(`[Scraper] Saved ${addedCount} relevant items from ${source.name}`);
+
+                // Polite delay between domains 3 to 7 secs
+                const waitTime = Math.floor(Math.random() * 4000) + 3000;
+                console.log(`[Scraper] Waiting ${waitTime}ms before next source...`);
+                await delay(waitTime);
 
             } catch (pageErr) {
                 console.error(`[Scraper] Error processing ${source.name}:`, pageErr.message);
@@ -141,12 +273,15 @@ async function scrapeNews() {
     } catch (err) {
         console.error('[Scraper] Fatal error:', err);
     } finally {
-        if (browser) await browser.close();
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (e) {}
+        }
         console.log('[Scraper] Finished.');
     }
 }
 
-// Allow standalone run
 if (require.main === module) {
     scrapeNews();
 }

@@ -674,7 +674,22 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news);
             const result = await fetchGeminiAnalysis(prompt);
+            console.log('[DEV] Raw Gemini response length:', result.length, '\n', result.slice(0, 300));
             setAiAnalysisText(result);
+
+            // Auto-save analysis for logged-in users
+            if (token) {
+                fetch('/api/user/analyses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        team_name: entryData.name,
+                        entry_id: entryData.id,
+                        gameweek: picksToUse.entry_history.event,
+                        analysis_text: result,
+                    })
+                }).catch(e => console.warn('[DEV] Failed to save analysis:', e));
+            }
         } catch (error: any) {
             console.error("Gemini Error:", error);
             setAiAnalysisText(`Error: ${error.message || "Unknown error occurred"}`);
@@ -1303,32 +1318,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         )}
 
-                        {/* Local Analysis Content (Default) */}
-                        {/* Gemini Content - Always shown when available */}
-                        {aiAnalysisText && !isAiLoading && (
-                            <div className="bg-white/5 p-6 md:p-8 rounded-xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                        h1: ({ node, ...props }: any) => <h1 className="text-2xl font-black text-[#02efff] mb-4 uppercase tracking-tight border-b border-white/10 pb-2" {...props} />,
-                                        h2: ({ node, ...props }: any) => <h2 className="text-xl font-bold text-[#00ff87] mt-6 mb-3 uppercase tracking-wide" {...props} />,
-                                        h3: ({ node, ...props }: any) => <h3 className="text-lg font-bold text-white mt-4 mb-2" {...props} />,
-                                        p: ({ node, ...props }: any) => <p className="text-white/80 text-sm leading-relaxed mb-4" {...props} />,
-                                        ul: ({ node, ...props }: any) => <ul className="list-disc list-inside space-y-2 mb-4 text-white/80 text-sm" {...props} />,
-                                        ol: ({ node, ...props }: any) => <ol className="list-decimal list-inside space-y-2 mb-4 text-white/80 text-sm" {...props} />,
-                                        li: ({ node, ...props }: any) => <li className="pl-2" {...props} />,
-                                        strong: ({ node, ...props }: any) => <strong className="text-[#02efff] font-bold" {...props} />,
-                                        table: ({ node, ...props }: any) => <div className="overflow-x-auto mb-6 rounded-lg border border-white/10"><table className="min-w-full divide-y divide-white/10 text-sm" {...props} /></div>,
-                                        thead: ({ node, ...props }: any) => <thead className="bg-white/10" {...props} />,
-                                        th: ({ node, ...props }: any) => <th className="px-4 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider" {...props} />,
-                                        td: ({ node, ...props }: any) => <td className="px-4 py-3 text-white/80 whitespace-normal break-words border-t border-white/5" {...props} />,
-                                        blockquote: ({ node, ...props }: any) => <blockquote className="border-l-4 border-[#02efff] pl-4 italic text-white/60 my-4" {...props} />,
-                                    }}
-                                >
-                                    {aiAnalysisText}
-                                </ReactMarkdown>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>

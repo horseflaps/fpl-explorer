@@ -10,6 +10,7 @@ import GameweekLiveView from './components/GameweekLiveView';
 import StandingsView from './components/StandingsView';
 import PitchView from './components/PitchView';
 import MyTeamsView from './components/MyTeamsView';
+import PricingView from './components/PricingView';
 import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
@@ -79,6 +80,7 @@ function App() {
             <Route path="/standings" element={<StandingsView data={data} />} />
             <Route path="/analyse" element={<PitchView data={data} />} />
             <Route path="/my-teams" element={<MyTeamsView />} />
+            <Route path="/pricing" element={<PricingView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

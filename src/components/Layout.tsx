@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/', label: 'Home', icon: LayoutDashboard },
         { path: '/analyse', label: 'Analyse', icon: LineChart },
         { path: '/my-teams', label: 'My Teams', icon: Shirt },
+        { path: '/pricing', label: 'Pricing', icon: Tag },
         { path: '/players', label: 'Players', icon: Users },
         { path: '/teams', label: 'Teams', icon: Shield },
         { path: '/fixtures', label: 'Fixtures', icon: Calendar },

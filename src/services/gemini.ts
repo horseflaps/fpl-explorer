@@ -28,8 +28,8 @@ export const generateGeminiPrompt = (
             id: player.id, // helpful for identification
             cost: player.now_cost / 10,
             form: player.form,
-            xG: player.expected_goals,
-            xA: player.expected_assists,
+            expected_goals: player.expected_goals,
+            expected_assists: player.expected_assists,
             ownership: player.selected_by_percent,
             sentiment: `In: ${player.transfers_in_event.toLocaleString()} | Out: ${player.transfers_out_event.toLocaleString()}`
         } : null;
@@ -51,7 +51,7 @@ export const generateGeminiPrompt = (
             team: getTeam(p.team)?.short_name || '?',
             pos: ['?', 'GKP', 'DEF', 'MID', 'FWD'][p.element_type],
             cost: p.now_cost / 10,
-            ep_next: p.ep_next,
+            expected_points_next_gw: p.ep_next,
             sentiment: `+${p.transfers_in_event.toLocaleString()} this GW`
         }));
 
@@ -117,24 +117,38 @@ export const generateGeminiPrompt = (
     5. **Clarity**: Use "Overall Rank" instead of "OR" to avoid confusion.
 
     **OUTPUT FORMAT (Verified Markdown):**
-    
+
+    > ⚠️ DEV MODE ACTIVE: You MUST include a "Source" and "Why included" field for every single recommendation, player mention, and claim. Do not skip these fields. If you omit them, the output is invalid.
+
     ## 🚨 TL;DR: Immediate Action
-    (Be specific: "Sell [Out] for [In]. Reasons: [Summary].")
-    
-    **Top Targets to BUY (Affordable Options):**
-    1. [Player] (Team) - £Price - Sentiment: [Trending Up/Down] - Why he fits.
-    2. [Player] (Team) - £Price - Sentiment: [Trending Up/Down] - Why he fits.
+    (One sentence: "Sell [Out] for [In].")
+    - **Source:** [e.g. "Market Data — ep_next" / "News: BBC Sport" / "Team Stats — form"]
+    - **Why included:** [e.g. "Highest ep_next of affordable options at £6.5m"]
 
-    ## 1. Issues & Fixes
-    | Player | Issue | Fix | Priority | Cost Check | Sentiment Check |
-    |---|---|---|---|---|---|
-    | ... | ... | ... | ... | Affordable? | Essential? |
+    ## 1. Top Targets to BUY
+    For each player, use this exact format:
+    ### [Player] (Team) — £Price
+    - Sentiment: [Trending Up/Down]
+    - **Source:** [exactly which data — Market Data / News article title & source]
+    - **Why included:** [exact stat or quote from the data that justifies this]
 
-    ## 2. Captaincy & Strategy
-    - Captain: [Name] ([Reason])
-    - Strategy: [Attack/Defend Rank] (Acknowledge if you're going against the FPL meta).
+    ## 2. Issues & Fixes
+    | Player | Issue | Fix | Priority | Cost Check | Sentiment | Source | Why Included |
+    |---|---|---|---|---|---|---|---|
+    | [name] | [issue] | [fix] | [H/M/L] | [£X.Xm — Affordable?] | [Essential?] | [data source] | [specific reason] |
 
-    Keep it concise. Use tables. Be a friend who knows that keeping Gabriel is a no-brainer right now.
+    ## 3. Captaincy & Strategy
+    ### Captain Pick
+    - **Pick:** [Name]
+    - **Source:** [data point — e.g. "form: 8.2, ep_next: 9.1 from Market Data"]
+    - **Why included:** [why this stat makes them the best captain]
+
+    ### Strategy
+    - **Approach:** [Attack/Defend rank]
+    - **Source:** [what data drives this]
+    - **Why included:** [reasoning]
+
+    Every single bullet point and table row MUST have Source and Why Included populated. No exceptions.
     `;
 };
 

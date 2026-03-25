@@ -51,6 +51,21 @@ function initDb() {
             else console.log('[DB] Saved teams table ready.');
         });
 
+        // Past Analyses Table
+        db.run(`CREATE TABLE IF NOT EXISTS analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            team_name TEXT,
+            entry_id INTEGER,
+            gameweek INTEGER,
+            analysis_text TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating analyses table:', err.message);
+            else console.log('[DB] Analyses table ready.');
+        });
+
         // News Articles Table
         db.run(`CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
