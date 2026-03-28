@@ -1,4 +1,4 @@
-import { TrendingUp, Users, Shield } from 'lucide-react';
+import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const HomeView = () => {
@@ -58,6 +58,54 @@ const HomeView = () => {
                     <p className="text-gray-400 leading-relaxed">
                         Track your rivals and see live rank updates.
                         Save your favorite teams for quick access and never miss a beat in your competitive leagues.
+                    </p>
+                </div>
+            </div>
+
+            {/* FPL Connection Section */}
+            <div className="bg-slate-900/50 border border-white/10 rounded-3xl p-8 md:p-12">
+                <div className="flex items-center gap-3 mb-2 justify-center">
+                    <div className="w-2 h-2 rounded-full bg-[#00ff87] shadow-[0_0_6px_#00ff87]" />
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#00ff87]">Live FPL Integration</p>
+                </div>
+                <h2 className="text-3xl font-black text-white uppercase italic tracking-tight mb-4 text-center">How the Connection Works</h2>
+                <p className="text-gray-400 text-center max-w-2xl mx-auto mb-10 leading-relaxed">
+                    FantasyPremierWolf links directly to your FPL account using a browser extension — no passwords shared, no manual entry.
+                    Once connected, your live team, pending transfers, and captain choices sync automatically.
+                </p>
+                <div className="grid md:grid-cols-4 gap-6">
+                    <div className="flex flex-col items-center text-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-[#37003c] border border-[#00ff87]/30 flex items-center justify-center">
+                            <Chrome size={22} className="text-[#00ff87]" />
+                        </div>
+                        <h4 className="text-white font-bold text-sm uppercase tracking-wide">1. Install Extension</h4>
+                        <p className="text-xs text-gray-400 leading-relaxed">Install the FantasyPremierWolf Chrome extension. It runs quietly in the background.</p>
+                    </div>
+                    <div className="flex flex-col items-center text-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-[#37003c] border border-[#00ff87]/30 flex items-center justify-center">
+                            <Zap size={22} className="text-[#00ff87]" />
+                        </div>
+                        <h4 className="text-white font-bold text-sm uppercase tracking-wide">2. Log into FPL</h4>
+                        <p className="text-xs text-gray-400 leading-relaxed">Visit fantasy.premierleague.com and log in. The extension detects your session token automatically.</p>
+                    </div>
+                    <div className="flex flex-col items-center text-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-[#37003c] border border-[#00ff87]/30 flex items-center justify-center">
+                            <RefreshCw size={22} className="text-[#00ff87]" />
+                        </div>
+                        <h4 className="text-white font-bold text-sm uppercase tracking-wide">3. Auto-Connect</h4>
+                        <p className="text-xs text-gray-400 leading-relaxed">With FPW open in another tab, the extension connects both accounts instantly — no copy-pasting required.</p>
+                    </div>
+                    <div className="flex flex-col items-center text-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-[#37003c] border border-[#00ff87]/30 flex items-center justify-center">
+                            <Unlink size={22} className="text-[#00ff87]" />
+                        </div>
+                        <h4 className="text-white font-bold text-sm uppercase tracking-wide">4. Always in Sync</h4>
+                        <p className="text-xs text-gray-400 leading-relaxed">Your live team loads automatically. Logging out of FPL or FPW cleanly disconnects — no stale data.</p>
+                    </div>
+                </div>
+                <div className="mt-8 p-4 bg-slate-800/50 border border-white/5 rounded-2xl text-center">
+                    <p className="text-xs text-gray-500 leading-relaxed max-w-xl mx-auto">
+                        <span className="text-white font-semibold">Your password is never touched.</span> The extension reads a short-lived session token directly from FPL's own website — the same way your browser stays logged in. It is stored securely on our server and used only to fetch your team data.
                     </p>
                 </div>
             </div>

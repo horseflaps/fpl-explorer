@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(curl -s https://fantasy.premierleague.com/a/login)",
+      "Bash(curl -s -L https://fantasy.premierleague.com/)",
+      "Bash(grep -oP '4_[a-zA-Z0-9_-]{20,}')",
+      "Bash(curl -sv \"https://fantasy.premierleague.com/\")",
+      "Bash(curl -s https://fantasy.premierleague.com/)",
+      "Bash(nslookup auth.pingone.eu)",
+      "Bash(nslookup account.premierleague.com)",
+      "Bash(curl -s https://account.premierleague.com/.well-known/openid-configuration)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''token_endpoint:'''', d.get\\(''''token_endpoint''''\\)\\); print\\(''''grant_types:'''', d.get\\(''''grant_types_supported''''\\)\\)\")",
+      "Bash(curl -sk https://auth.pingone.eu/68340de1-dfb9-412e-937c-20172986d129/as/.well-known/openid-configuration)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''token:'''', d.get\\(''''token_endpoint''''\\)\\); print\\(''''grants:'''', d.get\\(''''grant_types_supported''''\\)\\)\")",
+      "Bash(curl -s --max-time 10 \"https://auth.pingone.eu/68340de1-dfb9-412e-937c-20172986d129/as/.well-known/openid-configuration\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''grants:'''', d.get\\(''''grant_types_supported''''\\)\\); print\\(''''token:'''', d.get\\(''''token_endpoint''''\\)\\)\")",
+      "Bash(node generate-icons.cjs)"
+    ]
+  }
+}

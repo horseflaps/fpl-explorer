@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const https = require('https');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('./server/db.cjs');
@@ -9,6 +10,9 @@ const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-prod';
+
+// Per-user FPL token validation cache { [userId]: { valid: bool, at: timestamp } }
+const fplValidationCache = {};
 
 // Middleware
 app.use(cors());
@@ -75,6 +79,16 @@ app.get('/api/auth/me', (req, res) => {
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
         res.json({ user: decoded }); // Echo back user info from token
+    });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    // Clear FPL connection on logout so next session starts fresh
+    delete fplValidationCache[decoded.id];
+    db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id], () => {
+        res.json({ ok: true });
     });
 });
 
@@ -232,6 +246,363 @@ app.get('/api/news', (req, res) => {
     db.all("SELECT source, title, summary FROM articles ORDER BY published_at DESC LIMIT 20", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
+    });
+});
+
+// --- FPL Account Connection ---
+
+function fplHttpRequest(hostname, path, method, headers, body) {
+    return new Promise((resolve, reject) => {
+        const opts = {
+            hostname,
+            path,
+            method,
+            headers: body ? { ...headers, 'Content-Length': Buffer.byteLength(body) } : headers,
+        };
+        const req = https.request(opts, (res) => {
+            const cookies = res.headers['set-cookie'] || [];
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve({ status: res.statusCode, cookies, body: data }));
+        });
+        req.on('error', reject);
+        if (body) req.write(body);
+        req.end();
+    });
+}
+
+function requireAuth(req, res) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) { res.status(401).json({ error: 'No token provided' }); return null; }
+    try {
+        return jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+    } catch {
+        res.status(401).json({ error: 'Invalid token' });
+        return null;
+    }
+}
+
+// Save FPL entry ID to user profile
+app.post('/api/fpl/connect', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { entry_id } = req.body;
+    if (!entry_id) return res.status(400).json({ error: 'entry_id required' });
+
+    db.run('UPDATE users SET fpl_entry_id = ? WHERE id = ?', [Number(entry_id), decoded.id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ entry_id: Number(entry_id) });
+    });
+});
+
+app.get('/api/fpl/status', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    db.get('SELECT fpl_entry_id, fpl_session, fpl_expires_at, fpl_refresh_token FROM users WHERE id = ?', [decoded.id], async (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row?.fpl_session) return res.json({ fpl_entry_id: null, fpl_connected: false });
+
+        // Check cache (5 min TTL) — skip cache if entry ID is missing
+        const cached = fplValidationCache[decoded.id];
+        if (cached && (Date.now() - cached.at) < 5 * 60 * 1000 && row.fpl_entry_id) {
+            if (!cached.valid) {
+                db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id]);
+                return res.json({ fpl_entry_id: null, fpl_connected: false });
+            }
+            return res.json({ fpl_entry_id: row.fpl_entry_id || null, fpl_connected: true });
+        }
+
+        // Validate token against FPL API
+        try {
+            const fplToken = await getValidFplToken(decoded.id, row);
+            const testRes = await fetch('https://fantasy.premierleague.com/api/me/', {
+                headers: {
+                    'Authorization': `Bearer ${fplToken}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                }
+            });
+
+            if (testRes.status === 401 || testRes.status === 403) {
+                fplValidationCache[decoded.id] = { valid: false, at: Date.now() };
+                db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id]);
+                return res.json({ fpl_entry_id: null, fpl_connected: false });
+            }
+
+            let entryId = row.fpl_entry_id;
+
+            // If entry ID missing, fetch it from FPL and store it
+            if (!entryId) {
+                try {
+                    const meRes = await fetch('https://fantasy.premierleague.com/api/me/', {
+                        headers: {
+                            'Authorization': `Bearer ${fplToken}`,
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        }
+                    });
+                    if (meRes.ok) {
+                        const meData = await meRes.json();
+                        entryId = meData.player?.entry || null;
+                        if (entryId) {
+                            db.run('UPDATE users SET fpl_entry_id = ? WHERE id = ?', [entryId, decoded.id]);
+                        }
+                    }
+                } catch {}
+            }
+
+            fplValidationCache[decoded.id] = { valid: true, at: Date.now() };
+            res.json({ fpl_entry_id: entryId || null, fpl_connected: true });
+        } catch {
+            // Network error — assume still connected, don't clear
+            fplValidationCache[decoded.id] = { valid: true, at: Date.now() };
+            res.json({ fpl_entry_id: row.fpl_entry_id || null, fpl_connected: true });
+        }
+    });
+});
+
+app.post('/api/fpl/disconnect', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    delete fplValidationCache[decoded.id];
+    db.run('UPDATE users SET fpl_session = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: 'FPL account disconnected' });
+    });
+});
+
+// Refresh FPL access token using stored refresh token
+const OIDC_TOKEN_URL = 'https://account.premierleague.com/as/token.oauth2';
+const FPL_CLIENT_ID = 'bfcbaf69-aade-4c1b-8f00-c1cb8a193030';
+
+async function refreshFplToken(userId, refreshToken) {
+    const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: FPL_CLIENT_ID,
+    });
+
+    const resp = await fetch(OIDC_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+    });
+
+    if (!resp.ok) throw new Error(`Token refresh failed: ${resp.status}`);
+
+    const data = await resp.json();
+    const expiresAt = Math.floor(Date.now() / 1000) + (data.expires_in || 3600);
+
+    await new Promise((resolve, reject) => {
+        db.run(
+            'UPDATE users SET fpl_session = ?, fpl_refresh_token = ?, fpl_expires_at = ? WHERE id = ?',
+            [data.access_token, data.refresh_token || refreshToken, expiresAt, userId],
+            (err) => err ? reject(err) : resolve()
+        );
+    });
+
+    console.log(`[FPL] Token refreshed for user ${userId}, expires at ${new Date(expiresAt * 1000).toISOString()}`);
+    return data.access_token;
+}
+
+// Get a valid FPL token, refreshing if expired
+async function getValidFplToken(userId, row) {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const isExpired = row.fpl_expires_at && (row.fpl_expires_at - 60) < nowSecs; // refresh 60s early
+
+    if (isExpired && row.fpl_refresh_token) {
+        console.log(`[FPL] Access token expired for user ${userId}, refreshing...`);
+        return await refreshFplToken(userId, row.fpl_refresh_token);
+    }
+
+    return row.fpl_session;
+}
+
+// Fetch live authenticated team picks (reflects pending transfers/captain changes)
+app.get('/api/fpl/my-picks', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    db.get('SELECT fpl_session, fpl_refresh_token, fpl_expires_at, fpl_entry_id FROM users WHERE id = ?', [decoded.id], async (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row?.fpl_session) return res.status(401).json({ error: 'No FPL token stored' });
+        if (!row?.fpl_entry_id) return res.status(400).json({ error: 'No FPL entry ID stored' });
+
+        let fplToken;
+        try {
+            fplToken = await getValidFplToken(decoded.id, row);
+        } catch (e) {
+            return res.status(401).json({ error: 'FPL token expired and refresh failed. Reconnect via browser extension.' });
+        }
+
+        const headers = {
+            'Authorization': `Bearer ${fplToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Origin': 'https://fantasy.premierleague.com',
+            'Referer': 'https://fantasy.premierleague.com/',
+        };
+
+        try {
+            const response = await fetch(`https://fantasy.premierleague.com/api/my-team/${row.fpl_entry_id}/`, { headers });
+
+            if (response.status === 401) {
+                // Token expired — clear it
+                db.run('UPDATE users SET fpl_session = NULL WHERE id = ?', [decoded.id]);
+                return res.status(401).json({ error: 'FPL token expired. Reconnect via browser extension.' });
+            }
+
+            if (!response.ok) {
+                const txt = await response.text();
+                return res.status(response.status).json({ error: txt });
+            }
+
+            const data = await response.json();
+
+            // my-team returns { picks, chips, transfers } — convert to same shape as
+            // /entry/{id}/event/{gw}/picks/ so the app can use it directly
+            res.json({
+                active_chip: data.active_chip || null,
+                automatic_subs: [],
+                entry_history: null,
+                picks: data.picks.map(p => ({
+                    element: p.element,
+                    position: p.position,
+                    multiplier: p.is_captain ? 2 : p.is_vice_captain ? 1 : p.position > 11 ? 0 : 1,
+                    is_captain: p.is_captain,
+                    is_vice_captain: p.is_vice_captain,
+                })),
+                _live: true,
+                _transfers: data.transfers || null, // { limit, made, cost, bank, value }
+            });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+});
+
+// Receive FPL token from browser extension
+app.post('/api/fpl/token', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { fpl_token, fpl_refresh_token, fpl_expires_at, entry_id } = req.body;
+    if (!fpl_token) return res.status(400).json({ error: 'fpl_token required' });
+
+    let resolvedEntryId = entry_id ? Number(entry_id) : null;
+
+    // If no entry ID provided, fetch it from FPL /api/me/
+    if (!resolvedEntryId) {
+        try {
+            const meRes = await fetch('https://fantasy.premierleague.com/api/me/', {
+                headers: {
+                    'Authorization': `Bearer ${fpl_token}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                }
+            });
+            if (meRes.ok) {
+                const meData = await meRes.json();
+                resolvedEntryId = meData.player?.entry || null;
+            }
+        } catch {}
+    }
+
+    const updates = ['fpl_session = ?', 'fpl_refresh_token = ?', 'fpl_expires_at = ?', 'fpl_entry_id = ?'];
+    const params = [fpl_token, fpl_refresh_token || null, fpl_expires_at || null, resolvedEntryId];
+    params.push(decoded.id);
+
+    db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        delete fplValidationCache[decoded.id];
+        res.json({ ok: true, entry_id: resolvedEntryId });
+    });
+});
+
+// Set captain or vice-captain
+app.post('/api/fpl/set-captain', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { element, role } = req.body;
+    if (!element || !['captain', 'vice_captain'].includes(role)) {
+        return res.status(400).json({ error: 'element and role (captain|vice_captain) required' });
+    }
+
+    db.get('SELECT fpl_session, fpl_refresh_token, fpl_expires_at, fpl_entry_id FROM users WHERE id = ?', [decoded.id], async (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row?.fpl_session) return res.status(401).json({ error: 'No FPL token stored' });
+
+        let fplToken;
+        try { fplToken = await getValidFplToken(decoded.id, row); }
+        catch (e) { return res.status(401).json({ error: 'FPL token expired. Reconnect via extension.' }); }
+
+        const headers = {
+            'Authorization': `Bearer ${fplToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Origin': 'https://fantasy.premierleague.com',
+            'Referer': 'https://fantasy.premierleague.com/',
+        };
+
+        // Fetch current team
+        const teamRes = await fetch(`https://fantasy.premierleague.com/api/my-team/${row.fpl_entry_id}/`, { headers });
+        if (!teamRes.ok) return res.status(teamRes.status).json({ error: 'Failed to fetch current team' });
+        const teamData = await teamRes.json();
+
+        // Update captain/VC flags
+        const updatedPicks = teamData.picks.map(p => ({
+            element: p.element,
+            position: p.position,
+            is_captain: role === 'captain' ? p.element === element : p.is_captain && p.element !== element,
+            is_vice_captain: role === 'vice_captain' ? p.element === element : p.is_vice_captain && p.element !== element,
+        }));
+
+        const updateRes = await fetch(`https://fantasy.premierleague.com/api/my-team/${row.fpl_entry_id}/`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ picks: updatedPicks, chips: null }),
+        });
+
+        const updateBody = await updateRes.json();
+        if (!updateRes.ok) return res.status(updateRes.status).json(updateBody);
+        res.json({ ok: true });
+    });
+});
+
+// Proxy authenticated FPL requests (uses stored fpl_session token if available)
+app.use('/api/fpl-auth', async (req, res) => {
+    const req_path = req.path;
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    db.get('SELECT fpl_session, fpl_entry_id FROM users WHERE id = ?', [decoded.id], async (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row?.fpl_session) return res.status(401).json({ error: 'No FPL token stored. Connect via browser extension.' });
+
+        const fplPath = '/' + req_path;
+        const targetUrl = `https://fantasy.premierleague.com/api${fplPath}`;
+
+        try {
+            const response = await fetch(targetUrl, {
+                method: req.method,
+                headers: {
+                    'Authorization': `Bearer ${row.fpl_session}`,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Accept': 'application/json',
+                    'Origin': 'https://fantasy.premierleague.com',
+                    'Referer': 'https://fantasy.premierleague.com/',
+                },
+                body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
+            });
+
+            const data = await response.json();
+            if (!response.ok) return res.status(response.status).json(data);
+            res.json(data);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
     });
 });
 

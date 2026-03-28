@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader2, Trash2, ArrowRight, Shirt, Activity } from 'lucide-react';
+import { Loader2, Trash2, ArrowRight, Shirt, Activity, Search, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -31,6 +31,24 @@ const MyTeamsView: React.FC = () => {
     const [teamsLoading, setTeamsLoading] = useState(true);
     const [teamsError, setTeamsError] = useState<string | null>(null);
     const [teamToDelete, setTeamToDelete] = useState<number | null>(null);
+
+    // Search state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<{ team_id: number; team_name: string; manager_name: string }[]>([]);
+    const [searchLoading, setSearchLoading] = useState(false);
+
+    useEffect(() => {
+        if (searchQuery.length < 2) { setSearchResults([]); return; }
+        const t = setTimeout(async () => {
+            setSearchLoading(true);
+            try {
+                const res = await fetch(`/api/team-search?q=${encodeURIComponent(searchQuery)}`);
+                if (res.ok) setSearchResults(await res.json());
+            } catch {}
+            finally { setSearchLoading(false); }
+        }, 300);
+        return () => clearTimeout(t);
+    }, [searchQuery]);
 
     // Analyses state
     const [analyses, setAnalyses] = useState<SavedAnalysis[]>([]);
@@ -86,8 +104,14 @@ const MyTeamsView: React.FC = () => {
 
     if (!user) {
         return (
-            <div className="flex flex-col items-center justify-center h-96 text-gray-400">
-                <p>Please login to view your saved data.</p>
+            <div className="flex flex-col items-center justify-center py-32 text-center space-y-6 animate-in fade-in zoom-in duration-500">
+                <div className="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+                    <Shirt size={36} className="text-gray-500" />
+                </div>
+                <div>
+                    <h2 className="text-2xl font-black text-white mb-2">Login Required</h2>
+                    <p className="text-gray-400">Please log in to view your saved teams and past analyses.</p>
+                </div>
             </div>
         );
     }
@@ -114,6 +138,43 @@ const MyTeamsView: React.FC = () => {
             {tab === 'teams' && (
                 <>
                     <h2 className="text-3xl font-black text-white tracking-tight">My Teams</h2>
+
+                    {/* Team Search */}
+                    <div className="relative">
+                        <div className="flex items-center gap-3 bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-[#00ff87]/50 transition-colors">
+                            <Search size={18} className="text-gray-500 flex-shrink-0" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                placeholder="Search any FPL team by name..."
+                                className="bg-transparent text-white placeholder-gray-500 flex-1 outline-none text-sm"
+                            />
+                            {searchQuery && (
+                                <button onClick={() => { setSearchQuery(''); setSearchResults([]); }} className="text-gray-500 hover:text-white">
+                                    <X size={16} />
+                                </button>
+                            )}
+                            {searchLoading && <Loader2 size={16} className="animate-spin text-[#00ff87]" />}
+                        </div>
+                        {searchResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden z-20 shadow-xl">
+                                {searchResults.map(r => (
+                                    <button
+                                        key={r.team_id}
+                                        onClick={() => { navigate(`/analyse?entry=${r.team_id}`); setSearchQuery(''); setSearchResults([]); }}
+                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800 transition-colors text-left border-b border-slate-800 last:border-0"
+                                    >
+                                        <div>
+                                            <div className="text-white font-semibold text-sm">{r.team_name}</div>
+                                            <div className="text-gray-500 text-xs">{r.manager_name}</div>
+                                        </div>
+                                        <ArrowRight size={16} className="text-gray-600" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     {teamsError && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl">{teamsError}</div>}
                     {teamsLoading ? (
                         <div className="flex justify-center items-center h-48"><Loader2 className="w-8 h-8 text-[#00ff87] animate-spin" /></div>

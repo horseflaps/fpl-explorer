@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw, LogIn, Unlink } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse, NewsArticle } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName } from '../services/api';
 
 
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
+import { LoginModal } from './LoginModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -15,6 +16,9 @@ interface PitchViewProps {
 }
 
 const PitchView: React.FC<PitchViewProps> = ({ data }) => {
+    // Auth context — must be first so user is available throughout
+    const { user, token, fplEntryId, fplConnected, setFplEntryId } = useAuth();
+
     // Helper to calculate free transfers based on history
     const calculateFreeTransfers = (history: any, entryData: Entry | null, targetGw: number): number => {
         if (!history || !history.current || history.current.length === 0) return 1;
@@ -64,7 +68,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     // Search State
     const navigate = useNavigate();
-    const [searchMode, setSearchMode] = useState<'name' | 'team' | 'league'>('name');
+    const [searchMode, setSearchMode] = useState<'name' | 'team' | 'league' | 'fpl'>('name');
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [teamIdInput, setTeamIdInput] = useState('');
@@ -72,6 +76,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [leagueData, setLeagueData] = useState<LeagueStandingsResponse | null>(null);
     const [isSearchLoading, setIsSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
+    const [fplSaving, setFplSaving] = useState(false);
+    const [fplError, setFplError] = useState<string | null>(null);
+    const [fplManualId, setFplManualId] = useState('');
+    const [hoveredPickElement, setHoveredPickElement] = useState<number | null>(null);
+    const [captainSaving, setCaptainSaving] = useState<'captain' | 'vice_captain' | null>(null);
+    const [captainError, setCaptainError] = useState<string | null>(null);
+    const [captainSuccess, setCaptainSuccess] = useState<string | null>(null);
+    const [captainModalPick, setCaptainModalPick] = useState<Pick | null>(null);
 
     const handleNameSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -115,6 +127,40 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         }
     };
 
+    const handleFplSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fplManualId) return;
+        setFplError(null);
+        if (token) {
+            setFplSaving(true);
+            try {
+                const res = await fetch('/api/fpl/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ entry_id: fplManualId }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || 'Failed');
+                setFplEntryId(json.entry_id);
+            } catch (err: any) {
+                setFplError(err.message);
+                setFplSaving(false);
+                return;
+            }
+            setFplSaving(false);
+        }
+        navigate(`/analyse?entry=${fplManualId}`);
+    };
+
+    const handleFplDisconnect = async () => {
+        if (!token) return;
+        await fetch('/api/fpl/disconnect', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        setFplEntryId(null);
+    };
+
     const handleReset = () => {
         localStorage.removeItem('last_analysed_entry');
         navigate('/analyse');
@@ -127,13 +173,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     // Persistence: Redirect to last analysed entry if none provided
     useEffect(() => {
+        if (!user) return;
         if (!entryId) {
             const savedId = localStorage.getItem('last_analysed_entry');
             if (savedId) {
                 setSearchParams({ entry: savedId }, { replace: true });
             }
         }
-    }, [entryId, setSearchParams]);
+    }, [entryId, setSearchParams, user]);
 
     // Default to current gameweek
     const currentEvent = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
@@ -142,6 +189,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // View State
     const [view, setView] = useState<'pitch' | 'list'>('pitch');
     const [showAnalysis, setShowAnalysis] = useState(false);
+    const [showLoginModal, setShowLoginModal] = useState(false);
 
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
@@ -191,10 +239,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
 
 
-    // Auth context for saving team
-    const { user, token } = useAuth(); // Assuming useAuth exposes token, if not we need it from somewhere. 
-    // Wait, AuthContext definition: interface AuthContextType { user: User | null; token: string | null; ... }
-    // So logic is correct.
+    const isOwnTeam = !!(fplConnected && fplEntryId && entryId === fplEntryId);
+    const hasLivePicksRef = useRef(false);
 
     const [isSaving, setIsSaving] = useState(false);
     const [savedTeamIds, setSavedTeamIds] = useState<number[]>([]);
@@ -231,6 +277,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 setEntryHistory(history);
 
                 // Fetch Transfer Status (for available free transfers)
+                // Skip if viewing own connected team — live picks fetch handles this accurately
+                if (isOwnTeam) return;
                 try {
                     const status = await fetchTransferStatus(activeEntryId);
                     // "limit" usually usually holds the number of free transfers available? 
@@ -311,6 +359,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 return;
             }
 
+            // If live picks were already loaded, don't overwrite them when connection drops
+            if (hasLivePicksRef.current && !isOwnTeam) return;
+
             try {
                 setLoading(true);
                 setError(null);
@@ -319,10 +370,33 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 const currentGwId = data.events.find(e => e.is_current)?.id || 0;
 
                 // 1. Fetch Basic Data
+                // If viewing own connected team, use authenticated my-team endpoint for live picks
+                const fetchLivePicks = async (): Promise<EntryPicksResponse | null> => {
+                    if (!isOwnTeam || !token) return null;
+                    try {
+                        const res = await fetch('/api/fpl/my-picks', { headers: { Authorization: `Bearer ${token}` } });
+                        if (res.ok) {
+                            const data = await res.json();
+                            hasLivePicksRef.current = true;
+                            console.log('[PitchView] Using live authenticated picks');
+                            // Use real transfer count from FPL
+                            console.log('[PitchView] Raw _transfers from FPL:', JSON.stringify(data._transfers));
+                            if (data._transfers?.limit != null) {
+                                const realFreeTransfers = data._transfers.limit - (data._transfers.made || 0);
+                                setAvailableTransfers(Math.max(0, realFreeTransfers));
+                                console.log(`[PitchView] Live transfers — limit: ${data._transfers.limit}, made: ${data._transfers.made}, free: ${realFreeTransfers}`);
+                            }
+                            return data;
+                        }
+                    } catch {}
+                    return null;
+                };
+
                 const fetchData = async (gw: number) => {
                     try {
+                        const livePicks = await fetchLivePicks();
                         const [picks, live, trans] = await Promise.all([
-                            fetchEntryPicks(entryId, gw),
+                            livePicks ? Promise.resolve(livePicks) : fetchEntryPicks(entryId, gw),
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
@@ -391,7 +465,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         };
 
         loadPicks();
-    }, [entryId, selectedGw, data.events]); // Removed isLiveSync dependency
+    }, [entryId, selectedGw, data.events, isOwnTeam]);
+
+    // Reset live picks flag when navigating to a different team
+    useEffect(() => {
+        hasLivePicksRef.current = false;
+    }, [entryId]);
 
     const handlePrevGw = () => setSelectedGw(prev => Math.max(1, prev - 1));
     const handleNextGw = () => {
@@ -402,6 +481,33 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
 
+    // Require login to view any team
+    if (!user) {
+        return (
+            <>
+                <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-32 text-center space-y-6 animate-in fade-in zoom-in duration-500">
+                    <button
+                        onClick={() => setShowLoginModal(true)}
+                        className="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center hover:border-fpl-green hover:bg-slate-700 transition-all"
+                    >
+                        <LogIn size={36} className="text-gray-500" />
+                    </button>
+                    <div>
+                        <h2 className="text-2xl font-black text-white mb-2">Login Required</h2>
+                        <p className="text-gray-400">Please log in to analyse your team and access the Manager Hub.</p>
+                    </div>
+                    <button
+                        onClick={() => setShowLoginModal(true)}
+                        className="px-6 py-3 bg-fpl-green text-slate-900 font-black rounded-xl hover:bg-fpl-green/90 transition-all"
+                    >
+                        Login / Sign Up
+                    </button>
+                </div>
+                <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
+            </>
+        );
+    }
+
     // Render Search UI if no entry selected
     if (!entryId) {
         return (
@@ -409,8 +515,38 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 <div className="space-y-6">
                     <h2 className="text-4xl font-black text-white tracking-tight">Manager Hub</h2>
                     <p className="text-gray-400 max-w-lg mx-auto">
-                        Enter your Team ID directly, or find yourself by searching your Mini-League.
+                        Search by name, league, ID — or log in to load your team instantly.
                     </p>
+
+                    {/* My Team Banner — shown when FPL is connected */}
+                    {fplEntryId && (
+                        <div className="max-w-md mx-auto flex items-center justify-between gap-3 bg-[#00ff87]/10 border border-[#00ff87]/30 rounded-xl px-4 py-3 animate-in fade-in duration-300">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-[#00ff87]/20 rounded-full flex items-center justify-center">
+                                    <LogIn size={16} className="text-[#00ff87]" />
+                                </div>
+                                <div className="text-left">
+                                    <div className="text-xs text-[#00ff87] font-bold uppercase tracking-wide">FPL Connected</div>
+                                    <div className="text-sm text-white">Team ID: {fplEntryId}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => navigate(`/analyse?entry=${fplEntryId}`)}
+                                    className="bg-[#00ff87] text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-green-400 transition-colors"
+                                >
+                                    Load My Team
+                                </button>
+                                <button
+                                    onClick={handleFplDisconnect}
+                                    title="Disconnect FPL account"
+                                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                                >
+                                    <Unlink size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Toggle */}
                     <div className="flex justify-center mb-8">
@@ -441,6 +577,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     }`}
                             >
                                 By ID
+                            </button>
+                            <button
+                                onClick={() => setSearchMode('fpl')}
+                                className={`flex items-center gap-1.5 px-6 py-2 rounded-lg text-sm font-bold transition-all ${searchMode === 'fpl'
+                                    ? 'bg-[#02efff] text-slate-900 shadow-lg'
+                                    : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                    }`}
+                            >
+                                <LogIn size={14} />
+                                My Team
                             </button>
                         </div>
                     </div>
@@ -537,7 +683,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     </button>
                                 </div>
                             </form>
-                        ) : (
+                        ) : searchMode === 'league' ? (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
                                 <form onSubmit={handleLeagueSearch}>
                                     <label className="block text-sm font-bold text-gray-300 mb-2 text-left">
@@ -598,6 +744,58 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 </button>
                                             ))}
                                         </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            /* FPL Login Panel */
+                            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
+                                {!user ? (
+                                    <div className="p-6 bg-slate-900/80 border border-slate-700 rounded-xl text-center space-y-3">
+                                        <LogIn size={32} className="mx-auto text-[#02efff]" />
+                                        <p className="text-white font-bold">Sign in to FantasyPremierWolf first</p>
+                                        <p className="text-gray-400 text-sm">You need a FantasyPremierWolf account to connect your FPL team.</p>
+                                    </div>
+                                ) : (
+                                    /* My Team — save FPL entry ID to profile */
+                                    <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
+                                        <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 text-left space-y-2">
+                                            <p className="text-sm font-bold text-[#02efff] uppercase tracking-wide">How to find your Team ID</p>
+                                            <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+                                                <li>Go to <a href="https://fantasy.premierleague.com" target="_blank" rel="noreferrer" className="text-[#02efff] hover:underline">fantasy.premierleague.com</a></li>
+                                                <li>Click <strong className="text-white">Points</strong> in the top nav</li>
+                                                <li>Your Team ID is the number in the URL:<br /><span className="text-gray-500 font-mono text-[11px]">…/entry/<strong className="text-[#00ff87]">XXXXXX</strong>/event/…</span></li>
+                                            </ol>
+                                        </div>
+                                        <form onSubmit={handleFplSave} className="space-y-3">
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-300 mb-1 text-left">Your FPL Team ID</label>
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    value={fplManualId}
+                                                    onChange={(e) => setFplManualId(e.target.value.replace(/\D/g, ''))}
+                                                    placeholder="e.g. 1234567"
+                                                    autoFocus
+                                                    required
+                                                    className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-[#02efff] focus:ring-1 focus:ring-[#02efff] transition-all"
+                                                />
+                                            </div>
+                                            {fplError && (
+                                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+                                                    <AlertCircle size={16} />{fplError}
+                                                </div>
+                                            )}
+                                            <button
+                                                type="submit"
+                                                disabled={fplSaving || !fplManualId}
+                                                className="w-full bg-[#02efff] text-slate-900 font-bold py-3 rounded-xl hover:bg-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                {fplSaving ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
+                                                {fplSaving ? 'Saving...' : (user ? 'Save & Load My Team' : 'Load My Team')}
+                                            </button>
+                                        </form>
+                                        {!user && <p className="text-xs text-gray-600 text-center">Sign in to save your Team ID for future visits.</p>}
                                     </div>
                                 )}
                             </div>
@@ -730,6 +928,49 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             alert('Error saving team.');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleSetCaptain = async (pick: Pick, role: 'captain' | 'vice_captain') => {
+        if (!picksData) return;
+
+        // Update locally
+        const updatedPicks = picksData.picks.map(p => ({
+            ...p,
+            is_captain: role === 'captain' ? p.element === pick.element : p.is_captain && p.element !== pick.element,
+            is_vice_captain: role === 'vice_captain' ? p.element === pick.element : p.is_vice_captain && p.element !== pick.element,
+        }));
+        setPicksData({ ...picksData, picks: updatedPicks });
+        setCaptainError(null);
+
+        // Save to FPL if own team
+        if (isOwnTeam && token && fplEntryId) {
+            setCaptainSaving(role);
+            setCaptainError(null);
+            setCaptainSuccess(null);
+            try {
+                const res = await fetch('/api/fpl/set-captain', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ element: pick.element, role }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    const msg = err.error || 'Failed to save captain';
+                    setCaptainError(msg);
+                    setTimeout(() => setCaptainError(null), 4000);
+                } else {
+                    const label = role === 'captain' ? 'Captain' : 'Vice Captain';
+                    const playerName = getPlayer(pick.element)?.web_name || 'Player';
+                    setCaptainSuccess(`${playerName} set as ${label}`);
+                    setTimeout(() => setCaptainSuccess(null), 3000);
+                }
+            } catch (e: any) {
+                setCaptainError(e.message);
+                setTimeout(() => setCaptainError(null), 4000);
+            } finally {
+                setCaptainSaving(null);
+            }
         }
     };
 
@@ -973,19 +1214,25 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
         if (!player || !team) return null;
 
+        const isHovered = hoveredPickElement === pick.element;
+
         return (
             <div
                 key={pick.element}
-                className={`flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px] relative transition-all ${isGhost ? 'z-10' : 'z-20 hover:z-[60]'}`}
+                className={`flex flex-col items-center justify-center w-[72px] sm:w-24 md:w-30 lg:w-32 animate-in zoom-in duration-300 group cursor-pointer perspective-[500px] relative transition-all ${isGhost ? 'z-10' : isHovered ? 'z-[200]' : 'z-20'}`}
+                onMouseEnter={() => setHoveredPickElement(pick.element)}
+                onMouseLeave={() => setHoveredPickElement(null)}
                 onClick={() => {
                     if (isEditingTeam) {
                         if (isGhost) {
-                            handleRemovePlayer(pick); // Click ghost to re-open picker 
+                            handleRemovePlayer(pick);
                             if (!showPlayerPicker) setShowPlayerPicker(true);
                         } else if (swapSource) {
-                            // If Swap Mode active, clicking any player triggers swap
                             handleSwap(pick);
                         }
+                    } else if (!isEditingTeam && pick.position <= 11 && isOwnTeam) {
+                        // Mobile: open captain modal on tap
+                        setCaptainModalPick(pick);
                     }
                 }}
             >
@@ -993,7 +1240,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 {showRemove && (
                     <button
                         onClick={(e) => { e.stopPropagation(); handleRemovePlayer(pick); }}
-                        className="absolute -top-2 -right-2 z-[100] bg-red-500 text-white rounded-full p-1.5 md:p-2 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 scale-0 group-hover:scale-100 duration-200"
+                        className={`absolute -top-2 -right-2 z-[100] bg-red-500 text-white rounded-full p-1.5 md:p-2 transition-opacity shadow-lg hover:bg-red-600 duration-200 ${isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
                     >
                         <X size={10} />
                     </button>
@@ -1010,11 +1257,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     </button>
                 )}
 
+
                 {/* Swap Icon (Edit Mode - Hover) */}
                 {isEditingTeam && !isGhost && !swapSource && (
                     <button
                         onClick={(e) => { e.stopPropagation(); setSwapSource(pick); }}
-                        className="absolute -top-1 -left-1 z-[70] bg-[#37003c] text-[#00ff87] rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all scale-0 group-hover:scale-100 duration-200 border border-[#00ff87] shadow-lg hover:scale-110"
+                        className={`absolute -top-1 -left-1 z-[70] bg-[#37003c] text-[#00ff87] rounded-full p-1 transition-all duration-200 border border-[#00ff87] shadow-lg hover:scale-110 ${isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
                         title="Swap Position"
                     >
                         <ArrowLeftRight size={12} />
@@ -1034,8 +1282,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
 
                 {/* Player Content Wrapper - Applies Ghost Styles */}
-                <div className={`flex flex-col items-center w-full transition-all duration-300 
-                    ${isGhost ? 'opacity-40 grayscale blur-[1px] scale-95' : 'group-hover:scale-110'}
+                <div className={`flex flex-col items-center w-full transition-all duration-300
+                    ${isGhost ? 'opacity-40 grayscale blur-[1px] scale-95' : isHovered ? 'scale-110' : ''}
                     ${swapSource?.element === pick.element ? 'ring-2 ring-yellow-400 rounded-lg scale-110 z-50 shadow-[0_0_20px_rgba(250,204,21,0.5)]' : ''}
                     ${swapSource && swapSource.element !== pick.element ? 'cursor-alias opacity-80 hover:opacity-100 hover:ring-2 hover:ring-[#00ff87] hover:scale-105 rounded-lg' : ''}
                 `}>
@@ -1080,11 +1328,29 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         <div className="bg-white text-slate-900 rounded-t-[3px] text-center w-full h-[16px] sm:h-[18px] md:h-[20px] flex items-center justify-center">
                             <p className="text-[11px] sm:text-xs md:text-[13px] font-bold truncate leading-none px-1">{player.web_name}</p>
                         </div>
-                        {/* Points Box (Dark) */}
-                        <div className="bg-[#37003c] text-white rounded-b-[3px] text-center w-full border-t border-slate-200/20 h-[18px] sm:h-[20px] md:h-[22px] flex items-center justify-center">
-                            <p className="text-[12px] sm:text-[13px] md:text-base font-bold leading-none">
+                        {/* Points Box (Dark) — shows C/V buttons on hover for own team starting XI */}
+                        <div className="bg-[#37003c] text-white rounded-b-[3px] text-center w-full border-t border-slate-200/20 h-[18px] sm:h-[20px] md:h-[22px] flex items-center justify-center relative overflow-visible">
+                            {/* Default: points/price — hidden when showing C/V */}
+                            <p className={`text-[12px] sm:text-[13px] md:text-base font-bold leading-none transition-opacity duration-100 ${!isEditingTeam && pick.position <= 11 && isOwnTeam && isHovered ? 'opacity-0' : 'opacity-100'}`}>
                                 {isEditingTeam ? `£${(player.now_cost / 10).toFixed(1)}m` : (points > 0 ? points : '-')}
                             </p>
+                            {/* C/V buttons — shown when hovered (own team starting XI, non-edit) */}
+                            {!isEditingTeam && pick.position <= 11 && isOwnTeam && isHovered && (
+                                <div className="absolute inset-0 flex items-center justify-center gap-1">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleSetCaptain(pick, 'captain'); }}
+                                        title="Set as Captain"
+                                        className={`text-[8px] font-black w-5 h-5 rounded-full flex items-center justify-center border transition-colors shadow-md
+                                            ${pick.is_captain ? 'bg-[#00ff87] text-black border-[#00ff87]' : 'bg-slate-800 text-white border-white/60 hover:bg-[#00ff87] hover:text-black hover:border-[#00ff87]'}`}
+                                    >C</button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleSetCaptain(pick, 'vice_captain'); }}
+                                        title="Set as Vice Captain"
+                                        className={`text-[8px] font-black w-5 h-5 rounded-full flex items-center justify-center border transition-colors shadow-md
+                                            ${pick.is_vice_captain ? 'bg-[#02efff] text-black border-[#02efff]' : 'bg-slate-800 text-white border-white/60 hover:bg-[#02efff] hover:text-black hover:border-[#02efff]'}`}
+                                    >V</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div> {/* End of Player Content Wrapper */}
@@ -1292,6 +1558,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         )}
 
+                        {/* Execute Changes Button */}
+                        {aiAnalysisText && !isAiLoading && (
+                            <div className="flex justify-end mb-3">
+                                <button
+                                    onClick={handleAnalyze}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-[#00ff87] hover:bg-[#00e87a] text-[#0f172a] font-black text-sm rounded-xl uppercase tracking-wide transition-all shadow-lg shadow-[#00ff87]/20"
+                                >
+                                    ⚡ Execute Changes
+                                </button>
+                            </div>
+                        )}
+
                         {/* Gemini Content */}
                         {aiAnalysisText && !isAiLoading && (
                             <div className="bg-white/5 p-6 md:p-8 rounded-xl border border-white/10 overflow-hidden">
@@ -1366,6 +1644,40 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     return (
         <div className="relative space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
+
+            {/* Mobile Captain/VC modal */}
+            {captainModalPick && (() => {
+                const modalPlayer = getPlayer(captainModalPick.element);
+                return (
+                    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-4" onClick={() => setCaptainModalPick(null)}>
+                        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+                        <div className="relative bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in slide-in-from-bottom-4 duration-300" onClick={e => e.stopPropagation()}>
+                            <p className="text-white/50 text-xs font-bold uppercase tracking-widest mb-1">Set Role</p>
+                            <p className="text-white font-black text-lg mb-5">{modalPlayer?.web_name}</p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => { handleSetCaptain(captainModalPick, 'captain'); setCaptainModalPick(null); }}
+                                    className={`flex-1 py-4 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                        ${captainModalPick.is_captain ? 'bg-[#00ff87] text-black border-[#00ff87]' : 'bg-slate-800 text-white border-white/20 hover:border-[#00ff87] hover:text-[#00ff87]'}`}
+                                >
+                                    <span className="text-2xl font-black">C</span>
+                                    <span className="text-[10px] font-bold tracking-wider">CAPTAIN</span>
+                                </button>
+                                <button
+                                    onClick={() => { handleSetCaptain(captainModalPick, 'vice_captain'); setCaptainModalPick(null); }}
+                                    className={`flex-1 py-4 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                        ${captainModalPick.is_vice_captain ? 'bg-[#02efff] text-black border-[#02efff]' : 'bg-slate-800 text-white border-white/20 hover:border-[#02efff] hover:text-[#02efff]'}`}
+                                >
+                                    <span className="text-2xl font-black">V</span>
+                                    <span className="text-[10px] font-bold tracking-wider">VICE CAPTAIN</span>
+                                </button>
+                            </div>
+                            <button onClick={() => setCaptainModalPick(null)} className="mt-4 w-full py-2 text-white/40 text-sm hover:text-white transition-colors">Cancel</button>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Top Row: Team Name & Rating */}
             <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2 flex flex-col md:flex-row items-center md:items-end gap-3 justify-center md:justify-start">
                 <div className="flex items-center gap-3">
@@ -1643,6 +1955,28 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Captain save toast */}
+                                {(captainSaving || captainSuccess || captainError) && (
+                                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
+                                        {captainSaving && (
+                                            <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur-sm text-white text-xs font-semibold px-3 py-2 rounded-full border border-white/20 shadow-xl">
+                                                <Loader2 size={12} className="animate-spin" />
+                                                Saving…
+                                            </div>
+                                        )}
+                                        {captainSuccess && !captainSaving && (
+                                            <div className="flex items-center gap-2 bg-[#052e16]/90 backdrop-blur-sm text-[#00ff87] text-xs font-semibold px-3 py-2 rounded-full border border-[#00ff87]/40 shadow-xl">
+                                                ✓ {captainSuccess}
+                                            </div>
+                                        )}
+                                        {captainError && !captainSaving && (
+                                            <div className="flex items-center gap-2 bg-red-950/90 backdrop-blur-sm text-red-400 text-xs font-semibold px-3 py-2 rounded-full border border-red-500/40 shadow-xl">
+                                                ✕ {captainError}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Players Layer - Absolute Row Positioning for precision on landscape pitch */}
                                 <div className="absolute inset-0 z-10">

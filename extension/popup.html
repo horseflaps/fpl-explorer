@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FantasyPremierWolf Connector</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            width: 320px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .header {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border-bottom: 1px solid #1e293b;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #00ff87, #00d1ff);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .header h1 {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1.2;
+        }
+        .header p {
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 1px;
+        }
+        .content { padding: 16px; }
+        .status-card {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 14px;
+            border: 1px solid #334155;
+        }
+        .status-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .status-dot.green { background: #00ff87; box-shadow: 0 0 6px #00ff87; }
+        .status-dot.red { background: #ef4444; }
+        .status-dot.yellow { background: #f59e0b; }
+        .status-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .status-value {
+            font-size: 13px;
+            color: #e2e8f0;
+            margin-top: 2px;
+        }
+        .entry-id {
+            font-family: monospace;
+            color: #00ff87;
+            font-weight: 700;
+        }
+        .age-note {
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        .btn {
+            width: 100%;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-bottom: 8px;
+        }
+        .btn:last-child { margin-bottom: 0; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+            background: linear-gradient(135deg, #00ff87, #00d1ff);
+            color: #0f172a;
+        }
+        .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn-secondary {
+            background: #1e293b;
+            color: #94a3b8;
+            border: 1px solid #334155;
+        }
+        .btn-secondary:hover:not(:disabled) { background: #334155; color: #e2e8f0; }
+        .btn-danger {
+            background: #1e293b;
+            color: #ef4444;
+            border: 1px solid #ef4444;
+        }
+        .btn-danger:hover:not(:disabled) { background: #ef4444; color: #fff; }
+        .instructions {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 14px;
+            border: 1px solid #334155;
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+        .instructions strong { color: #e2e8f0; }
+        .instructions ol { padding-left: 16px; margin-top: 8px; }
+        .instructions li { margin-bottom: 4px; }
+        .message {
+            font-size: 12px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: none;
+        }
+        .message.success { background: #052e16; color: #00ff87; border: 1px solid #00ff87; display: block; }
+        .message.error { background: #2d0a0a; color: #ef4444; border: 1px solid #ef4444; display: block; }
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
+        }
+        #loading { text-align: center; padding: 20px; color: #64748b; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">🐺</div>
+        <div>
+            <h1>FantasyPremierWolf</h1>
+            <p>FPL Account Connector</p>
+        </div>
+    </div>
+
+    <div class="content">
+        <div id="loading">Loading...</div>
+        <div id="main" style="display:none">
+            <!-- FPL Token Status -->
+            <div class="status-card">
+                <div class="section-title">FPL Status</div>
+                <div class="status-row">
+                    <div class="status-dot" id="fpl-dot"></div>
+                    <div class="status-label" id="fpl-status-label"></div>
+                </div>
+                <div class="status-value" id="fpl-status-detail"></div>
+                <div class="age-note" id="fpl-token-age"></div>
+            </div>
+
+            <!-- Not on FPL site notice -->
+            <div id="not-on-fpl" style="display:none">
+                <div class="instructions">
+                    <strong>Not on FPL site</strong>
+                    <ol>
+                        <li>Visit <strong>fantasy.premierleague.com</strong></li>
+                        <li>Log in to your FPL account</li>
+                        <li>Come back here and click Connect</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Connect section -->
+            <div id="connect-section" style="display:none">
+                <div class="message" id="connect-msg"></div>
+                <button class="btn btn-primary" id="btn-connect">Connect FPL → FPW</button>
+            </div>
+
+            <!-- Already connected -->
+            <div id="connected-section" style="display:none">
+                <div class="status-card" style="border-color: #00ff87;">
+                    <div class="status-row">
+                        <div class="status-dot green"></div>
+                        <div class="status-label">Connected</div>
+                    </div>
+                    <div class="status-value">FPL token is ready to use in FPW</div>
+                </div>
+                <div class="message" id="reconnect-msg"></div>
+                <button class="btn btn-danger" id="btn-disconnect">Disconnect</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

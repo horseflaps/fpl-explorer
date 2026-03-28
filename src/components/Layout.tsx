@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
@@ -12,7 +12,20 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const [isLoginOpen, setIsLoginOpen] = useState(false);
-    const { user, logout } = useAuth();
+    const navigate = useNavigate();
+    const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast } = useAuth();
+
+    const handleFplConnectedDismiss = async () => {
+        dismissFplConnectedModal();
+        let entryId = fplEntryId;
+        if (!entryId && token) {
+            try {
+                const r = await fetch('/api/fpl/status', { headers: { Authorization: `Bearer ${token}` } });
+                if (r.ok) { const d = await r.json(); entryId = d.fpl_entry_id; }
+            } catch {}
+        }
+        navigate(entryId ? `/analyse?entry=${entryId}` : '/analyse');
+    };
 
     const navItems = [
         { path: '/', label: 'Home', icon: LayoutDashboard },
@@ -29,6 +42,77 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     return (
         <div className="min-h-screen bg-[url('https://resources.premierleague.com/premierleague/photo/2023/12/22/a894560a-0490-449e-8798-7c050a490ca9/pl-background.png')] bg-fixed bg-cover bg-center bg-no-repeat bg-slate-950 attachment-fixed text-white font-sans">
             <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+
+            {/* FPL Connected Modal */}
+            {showFplConnectedModal && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center p-6" onClick={handleFplConnectedDismiss}>
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+                    <div
+                        className="relative flex flex-col items-center gap-6 bg-slate-950 border-2 border-[#00ff87] rounded-3xl px-10 py-12 shadow-[0_0_60px_#00ff87,0_0_120px_rgba(0,255,135,0.3)] max-w-sm w-full text-center animate-in zoom-in-95 duration-300"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Pulsing glow ring */}
+                        <div className="absolute inset-0 rounded-3xl border-2 border-[#00ff87] animate-ping opacity-20 pointer-events-none" />
+
+                        {/* Icon */}
+                        <div className="w-20 h-20 rounded-full bg-[#00ff87]/10 border-2 border-[#00ff87] flex items-center justify-center shadow-[0_0_30px_#00ff87]">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#00ff87" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>
+                        </div>
+
+                        <div>
+                            <p className="text-[#00ff87] text-xs font-black uppercase tracking-[0.2em] mb-2">FPL Account</p>
+                            <h2 className="text-white text-3xl font-black tracking-tight">Connected</h2>
+                            <p className="text-slate-400 text-sm mt-3">Your FPL account is now linked.<br />The Wolf has access to your team.</p>
+                        </div>
+
+                        <button
+                            onClick={handleFplConnectedDismiss}
+                            className="w-full py-3 rounded-xl bg-[#00ff87] text-slate-900 font-black text-sm tracking-wide hover:brightness-110 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
+                        >
+                            {fplEntryId ? 'Load My Team →' : "Let's Go"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* FPL Disconnected Modal */}
+            {showFplDisconnectedToast && (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center p-6" onClick={dismissFplDisconnectedToast}>
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+                    <div
+                        className="relative flex flex-col items-center gap-6 bg-slate-950 border-2 border-red-500 rounded-3xl px-10 py-12 shadow-[0_0_60px_rgba(239,68,68,0.8),0_0_120px_rgba(239,68,68,0.3)] max-w-sm w-full text-center animate-in zoom-in-95 duration-300"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Pulsing glow ring */}
+                        <div className="absolute inset-0 rounded-3xl border-2 border-red-500 animate-ping opacity-20 pointer-events-none" />
+
+                        {/* Icon */}
+                        <div className="w-20 h-20 rounded-full bg-red-500/10 border-2 border-red-500 flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.6)]">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="15" y1="9" x2="9" y2="15" />
+                                <line x1="9" y1="9" x2="15" y2="15" />
+                            </svg>
+                        </div>
+
+                        <div>
+                            <p className="text-red-500 text-xs font-black uppercase tracking-[0.2em] mb-2">FPL Account</p>
+                            <h2 className="text-white text-3xl font-black tracking-tight">Disconnected</h2>
+                            <p className="text-slate-400 text-sm mt-3">Your FPL account has been unlinked.<br />Log into FPL to reconnect automatically.</p>
+                        </div>
+
+                        <button
+                            onClick={dismissFplDisconnectedToast}
+                            className="w-full py-3 rounded-xl bg-red-500 text-white font-black text-sm tracking-wide hover:brightness-110 transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+                        >
+                            Got It
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Overlay */}
             <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-0 pointer-events-none" />
@@ -70,7 +154,13 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                     <div className="p-4 space-y-4 border-t border-slate-800/50 bg-slate-900/30">
                         {/* Auth Section */}
                         {user ? (
-                            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 flex items-center justify-between group">
+                            <div className={`rounded-lg p-3 border flex items-center justify-between transition-all duration-700 ${
+                                loginGlow
+                                    ? 'bg-green-950/40 border-[#00ff87] shadow-[0_0_18px_rgba(0,255,135,0.45)]'
+                                    : fplConnected
+                                        ? 'bg-green-950/30 border-green-800/50'
+                                        : 'bg-slate-800/50 border-slate-700/50'
+                            }`}>
                                 <div className="flex items-center gap-3">
                                     <div className="bg-blue-600/20 p-2 rounded-full text-blue-400">
                                         <UserIcon size={16} />
@@ -78,6 +168,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                                     <div>
                                         <div className="text-xs text-gray-500 uppercase font-bold">Logged in as</div>
                                         <div className="text-sm font-bold text-white max-w-[120px] truncate" title={user.displayname}>{user.displayname}</div>
+                                        {fplConnected && <div className="text-xs text-green-400 font-semibold">FPL Connected ✓</div>}
                                     </div>
                                 </div>
                                 <button

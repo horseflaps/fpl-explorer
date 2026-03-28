@@ -66,6 +66,12 @@ function initDb() {
             else console.log('[DB] Analyses table ready.');
         });
 
+        // Migration: Add FPL session columns
+        db.run("ALTER TABLE users ADD COLUMN fpl_session TEXT", () => {});
+        db.run("ALTER TABLE users ADD COLUMN fpl_entry_id INTEGER", () => {});
+        db.run("ALTER TABLE users ADD COLUMN fpl_refresh_token TEXT", () => {});
+        db.run("ALTER TABLE users ADD COLUMN fpl_expires_at INTEGER", () => {});
+
         // News Articles Table
         db.run(`CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
