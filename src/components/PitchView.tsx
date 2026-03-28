@@ -3,13 +3,22 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw, LogIn, Unlink } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse, NewsArticle } from '../types/fpl';
-import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName } from '../services/api';
+import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName, fetchFixtures } from '../services/api';
 
 
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
 import { LoginModal } from './LoginModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+interface WolfPlan {
+    transfers: { out_name: string; in_name: string; sell_price: number; buy_price: number }[];
+    chip: string | null;
+    captain: string;
+    vice_captain: string;
+    hits_taken: number;
+    bank_after: number;
+}
 
 interface PitchViewProps {
     data: FPLResponse;
@@ -194,6 +203,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
+    const [wolfPlan, setWolfPlan] = useState<WolfPlan | null>(null);
     const [news, setNews] = useState<NewsArticle[]>([]);
 
     // Fetch News on Mount
@@ -853,34 +863,50 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         if (!picksToUse || !entryData) return;
 
         setIsAiLoading(true);
-        setAiAnalysisText(null); // Clear previous results
+        setAiAnalysisText(null);
+        setWolfPlan(null);
 
         try {
-            // Calculate accurate transfers made (New Players In)
-            // If picksOverride is provided (Edit Mode), comparing against original picksData.
-            // If not (View Mode), standard is 0 unless we track draft changes differently.
-            // But usually this function is called with 'editedPicks' when "Unleash Wolf" is clicked.
-
             const transfersMade = calculateTransfersMade(picksData, picksToUse);
-
-            // transfersAvailable = Initial Budget - Transfers Made - Open Slots (Ghost)
-            // Note: Ghost slots are "Pending Transfers Out", so they consume a transfer budget slot effectively.
-            // e.g. 1 FT. Sell Salah (Ghost). Net Budget = 0 (1 used).
-            // e.g. 1 FT. Sell Salah, Buy Saka. Transfers Made = 1. Ghost = 0. Net Budget = 0.
-
             const movesMadeInDraft = ghostPlayerIds.length;
-            const totalconsumed = transfersMade + movesMadeInDraft;
+            const transfersLeft = Math.max(0, availableTransfers - (transfersMade + movesMadeInDraft));
 
-            const transfersLeft = Math.max(0, availableTransfers - totalconsumed);
+            // Fetch next GW fixtures
+            const currentGwId = data.events.find(e => e.is_current)?.id ?? 0;
+            const nextGwId = data.events.find(e => e.is_next)?.id ?? (currentGwId + 1);
+            const fixtures = await fetchFixtures(nextGwId);
 
-            console.log(`[Gemini] Available: ${availableTransfers}, Made: ${transfersMade}, Ghosts: ${movesMadeInDraft} -> Remaining: ${transfersLeft}`);
+            // Derive available chips from history
+            const usedChipNames: string[] = entryHistory?.chips?.map((c: any) => c.name) ?? [];
+            const wildcardCount = usedChipNames.filter(c => c === 'wildcard').length;
+            const availableChips = (['wildcard', 'freehit', 'bboost', '3xc'] as const).filter(c => {
+                if (c === 'wildcard') return wildcardCount < 2;
+                return !usedChipNames.includes(c);
+            });
 
-            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news);
+            console.log(`[Gemini] FT remaining: ${transfersLeft} | Next GW: ${nextGwId} | Fixtures loaded: ${fixtures.length} | Chips available: ${availableChips.join(', ')}`);
+
+            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips);
             const result = await fetchGeminiAnalysis(prompt);
-            console.log('[DEV] Raw Gemini response length:', result.length, '\n', result.slice(0, 300));
-            setAiAnalysisText(result);
 
-            // Auto-save analysis for logged-in users
+            // Parse structured plan from response
+            const planStart = result.indexOf('---WOLF_PLAN_JSON---');
+            const planEnd = result.indexOf('---END_WOLF_PLAN---');
+            let displayText = result;
+            if (planStart !== -1 && planEnd !== -1) {
+                const jsonLine = result.slice(planStart + '---WOLF_PLAN_JSON---'.length, planEnd).trim();
+                displayText = result.slice(0, planStart).trim();
+                try {
+                    const parsed = JSON.parse(jsonLine);
+                    setWolfPlan(parsed);
+                    console.log('[Wolf] Plan parsed:', parsed);
+                } catch (e) {
+                    console.warn('[Wolf] Failed to parse plan JSON:', jsonLine, e);
+                }
+            }
+
+            setAiAnalysisText(displayText);
+
             if (token) {
                 fetch('/api/user/analyses', {
                     method: 'POST',
@@ -889,16 +915,51 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         team_name: entryData.name,
                         entry_id: entryData.id,
                         gameweek: picksToUse.entry_history.event,
-                        analysis_text: result,
+                        analysis_text: displayText,
                     })
                 }).catch(e => console.warn('[DEV] Failed to save analysis:', e));
             }
         } catch (error: any) {
-            console.error("Gemini Error:", error);
-            setAiAnalysisText(`Error: ${error.message || "Unknown error occurred"}`);
+            console.error('Gemini Error:', error);
+            setAiAnalysisText(`Error: ${error.message || 'Unknown error occurred'}`);
         } finally {
             setIsAiLoading(false);
         }
+    };
+
+    const handleExecutePlan = () => {
+        if (!wolfPlan || !picksData || !data) return;
+
+        // Build a deep copy of current picks to apply plan to
+        const newPicks: EntryPicksResponse = JSON.parse(JSON.stringify(picksData));
+
+        for (const transfer of wolfPlan.transfers) {
+            const outPlayer = data.elements.find(e => e.web_name === transfer.out_name);
+            const inPlayer = data.elements.find(e => e.web_name === transfer.in_name);
+            if (!outPlayer || !inPlayer) {
+                console.warn(`[ExecutePlan] Could not match players: ${transfer.out_name} → ${transfer.in_name}`);
+                continue;
+            }
+            const pickIdx = newPicks.picks.findIndex(p => p.element === outPlayer.id);
+            if (pickIdx !== -1) {
+                newPicks.picks[pickIdx] = { ...newPicks.picks[pickIdx], element: inPlayer.id };
+            }
+        }
+
+        // Apply captain / VC
+        if (wolfPlan.captain || wolfPlan.vice_captain) {
+            const captainPlayer = data.elements.find(e => e.web_name === wolfPlan.captain);
+            const vcPlayer = data.elements.find(e => e.web_name === wolfPlan.vice_captain);
+            newPicks.picks = newPicks.picks.map(p => ({
+                ...p,
+                is_captain: captainPlayer ? p.element === captainPlayer.id : p.is_captain,
+                is_vice_captain: vcPlayer ? p.element === vcPlayer.id : p.is_vice_captain,
+            }));
+        }
+
+        setEditedPicks(newPicks);
+        setIsEditingTeam(true);
+        setShowAnalysis(false);
     };
 
     const handleSaveTeam = async () => {
@@ -1563,15 +1624,65 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         )}
 
-                        {/* Execute Changes Button */}
-                        {aiAnalysisText && !isAiLoading && (
-                            <div className="flex justify-end mb-3">
-                                <button
-                                    onClick={handleAnalyze}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-[#00ff87] hover:bg-[#00e87a] text-[#0f172a] font-black text-sm rounded-xl uppercase tracking-wide transition-all shadow-lg shadow-[#00ff87]/20"
-                                >
-                                    ⚡ Execute Changes
-                                </button>
+                        {/* Wolf's Plan Card */}
+                        {wolfPlan && !isAiLoading && (
+                            <div className="bg-[#0d1f0f] border-2 border-[#00ff87] rounded-xl overflow-hidden shadow-[0_0_30px_rgba(0,255,135,0.15)]">
+                                <div className="bg-[#00ff87] px-5 py-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">🐺</span>
+                                        <span className="text-[#0d1f0f] font-black text-base uppercase tracking-widest">The Wolf's Plan</span>
+                                    </div>
+                                    {wolfPlan.hits_taken > 0 && (
+                                        <span className="bg-red-600 text-white text-xs font-black px-2 py-1 rounded-lg">
+                                            -{wolfPlan.hits_taken * 4} pts ({wolfPlan.hits_taken} hit{wolfPlan.hits_taken > 1 ? 's' : ''})
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    {/* Transfers */}
+                                    {wolfPlan.transfers.length === 0 ? (
+                                        <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <div className="text-white/40 text-xs uppercase font-bold tracking-widest mb-2">Transfers</div>
+                                            {wolfPlan.transfers.map((t, i) => (
+                                                <div key={i} className="flex items-center gap-3 bg-white/5 rounded-lg px-4 py-3">
+                                                    <span className="text-red-400 font-bold text-sm flex-1">↑ {t.out_name} <span className="text-white/40 font-normal">£{t.sell_price}m</span></span>
+                                                    <span className="text-white/30 text-lg">→</span>
+                                                    <span className="text-[#00ff87] font-bold text-sm flex-1 text-right">{t.in_name} ↓ <span className="text-white/40 font-normal">£{t.buy_price}m</span></span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Meta row */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+                                        <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
+                                            <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Captain</div>
+                                            <div className="text-[#00ff87] font-black text-sm">{wolfPlan.captain || '—'}</div>
+                                        </div>
+                                        <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
+                                            <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Vice-Captain</div>
+                                            <div className="text-[#02efff] font-black text-sm">{wolfPlan.vice_captain || '—'}</div>
+                                        </div>
+                                        <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
+                                            <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Chip</div>
+                                            <div className="text-yellow-400 font-black text-sm capitalize">{wolfPlan.chip ?? 'None'}</div>
+                                        </div>
+                                        <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
+                                            <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Bank After</div>
+                                            <div className="text-white font-black text-sm">£{wolfPlan.bank_after?.toFixed(1)}m</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Execute button */}
+                                    <button
+                                        onClick={handleExecutePlan}
+                                        className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                        ⚡ Execute Plan
+                                    </button>
+                                </div>
                             </div>
                         )}
 

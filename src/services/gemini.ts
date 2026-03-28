@@ -5,10 +5,11 @@ export const generateGeminiPrompt = (
     picks: EntryPicksResponse,
     entry: Entry,
     history: any,
-    transfersAvailable: number, // New parameter
-    news: any[] = [] // Optional news array
+    transfersAvailable: number,
+    news: any[] = [],
+    fixtures: any[] = [],
+    availableChips: string[] = []
 ): string => {
-    // Helpers
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
 
@@ -16,140 +17,151 @@ export const generateGeminiPrompt = (
     const managerName = `${entry.player_first_name} ${entry.player_last_name}`;
     const overallRank = picks.entry_history.overall_rank;
     const totalPoints = picks.entry_history.total_points;
-    const gwPoints = picks.entry_history.points; // Live points if available
+    const gwPoints = picks.entry_history.points;
+
+    const bank = entry.last_deadline_bank / 10;
+
+    // Build fixture lookup: teamId -> "vs OPP (H/A) FDR:X"
+    const fixtureByTeam: Record<number, string[]> = {};
+    for (const fix of fixtures) {
+        const homeTeam = getTeam(fix.team_h);
+        const awayTeam = getTeam(fix.team_a);
+        if (!fixtureByTeam[fix.team_h]) fixtureByTeam[fix.team_h] = [];
+        if (!fixtureByTeam[fix.team_a]) fixtureByTeam[fix.team_a] = [];
+        fixtureByTeam[fix.team_h].push(`vs ${awayTeam?.short_name ?? '?'} (H) FDR:${fix.team_h_difficulty}`);
+        fixtureByTeam[fix.team_a].push(`vs ${homeTeam?.short_name ?? '?'} (A) FDR:${fix.team_a_difficulty}`);
+    }
 
     const myPlayers = picks.picks.map(p => {
         const player = getPlayer(p.element);
         const team = player ? getTeam(player.team) : null;
-        return player && team ? {
+        if (!player || !team) return null;
+        const fix = fixtureByTeam[player.team]?.join(' & ') || 'No fixture (blank GW)';
+        return {
             name: player.web_name,
             team: team.short_name,
             position: ['?', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type],
-            id: player.id, // helpful for identification
+            squad_pos: p.position <= 11 ? `XI #${p.position}` : `Bench #${p.position - 11}`,
+            is_captain: p.is_captain,
+            is_vice_captain: p.is_vice_captain,
             cost: player.now_cost / 10,
             form: player.form,
-            expected_goals: player.expected_goals,
-            expected_assists: player.expected_assists,
+            ep_next: player.ep_next,
             ownership: player.selected_by_percent,
-            sentiment: `In: ${player.transfers_in_event.toLocaleString()} | Out: ${player.transfers_out_event.toLocaleString()}`
-        } : null;
+            next_fixture: fix,
+            status: player.status === 'a' ? 'Available' : player.status === 'd' ? 'Doubtful' : player.status === 'i' ? 'Injured' : player.status,
+        };
     }).filter(Boolean);
 
-    const bank = entry.last_deadline_bank / 10;
-    const currentGw = picks.entry_history.event;
-
-    // Get Top Market Targets (to help AI know prices and trends)
     const topMarketTargets = data.elements
         .filter(p => {
             const isMyPlayer = picks.picks.some(pick => pick.element === p.id);
             return !isMyPlayer && p.status !== 'u' && p.status !== 'i';
         })
         .sort((a, b) => parseFloat(b.ep_next) - parseFloat(a.ep_next))
-        .slice(0, 15)
-        .map(p => ({
-            name: p.web_name,
-            team: getTeam(p.team)?.short_name || '?',
-            pos: ['?', 'GKP', 'DEF', 'MID', 'FWD'][p.element_type],
-            cost: p.now_cost / 10,
-            expected_points_next_gw: p.ep_next,
-            sentiment: `+${p.transfers_in_event.toLocaleString()} this GW`
-        }));
+        .slice(0, 20)
+        .map(p => {
+            const fix = fixtureByTeam[p.team]?.join(' & ') || 'Blank GW';
+            return {
+                name: p.web_name,
+                team: getTeam(p.team)?.short_name || '?',
+                pos: ['?', 'GKP', 'DEF', 'MID', 'FWD'][p.element_type],
+                cost: p.now_cost / 10,
+                ep_next: p.ep_next,
+                form: p.form,
+                next_fixture: fix,
+                sentiment: `+${p.transfers_in_event.toLocaleString()} in / -${p.transfers_out_event.toLocaleString()} out this GW`,
+            };
+        });
 
-    // Estimate Free Transfers (FT) using the passed transfersAvailable if provided
-    // If transfersAvailable is passed, we trust the caller (who handled the logic).
-    // Otherwise fallback to basic estimation.
-    let netFT = transfersAvailable;
-    /* 
-    Fallback logic removed as we now expect explicit transfersAvailable. 
-    But keeping "estimatedFT" logic just in case? No, simplest is to use the passed value.
-    */
+    const chipNameMap: Record<string, string> = {
+        wildcard: 'Wildcard',
+        freehit: 'Free Hit',
+        bboost: 'Bench Boost',
+        '3xc': 'Triple Captain',
+    };
+    const chipsUsedNames = history?.chips?.map((c: any) => chipNameMap[c.name] || c.name).join(', ') || 'None';
+    const availableChipNames = availableChips.map(c => chipNameMap[c] || c).join(', ') || 'None remaining';
 
-    const chipsUsed = history?.chips?.map((c: any) => c.name).join(', ') || 'None';
-
-    // Determine Wolf's Persona Tone based on Rank
-    let toneInstruction = "";
+    let toneInstruction = '';
     if (overallRank < 10000) {
-        toneInstruction = "TONE: ELITE RESPECT. This manager is in the top 10k. Do NOT roast them. Treat them as a peer/expert. Focus purely on marginal gains and high-level strategy. Be concise and professional, acknowledging their success.";
+        toneInstruction = 'TONE: ELITE RESPECT. Top 10k. Treat as a peer. Focus on marginal gains only. Professional and concise.';
     } else if (overallRank < 100000) {
-        toneInstruction = "TONE: ENCOURAGING BUT FIRM. This manager is doing well (Top 100k). Acknowledge their good season but push them to reach the elite level. Minimal banter, mostly constructive strategy.";
+        toneInstruction = 'TONE: ENCOURAGING BUT FIRM. Top 100k. Acknowledge the good season, push them further. Minimal banter.';
     } else if (overallRank < 1000000) {
-        toneInstruction = "TONE: STANDARD WOLF BANTER. This is an average/decent rank (Top 1M). Use your standard sarcastic, aggressive persona. Roast their bad mistakes but help them climb.";
+        toneInstruction = 'TONE: STANDARD WOLF BANTER. Top 1M. Sarcastic and aggressive. Roast the mistakes but help them climb.';
     } else {
-        toneInstruction = "TONE: ROAST MODE. This rank is poor (>1M). You can be ruthless. Mock their reliance on bad differential picks. Question their life choices. But still provide 1-2 actual good tips to help them save face.";
+        toneInstruction = 'TONE: ROAST MODE. Rank >1M. Be ruthless. Mock bad picks. But still give 1-2 genuinely useful tips.';
     }
 
     const newsContext = news.length > 0
-        ? `**REAL-WORLD NEWS & GOSSIP (Use this to inform transfer tips):**\n${news.map(n => `- [${n.source}] ${n.title}: ${n.summary}`).join('\n')}`
-        : "No specific news/gossip available.";
+        ? `**REAL-WORLD NEWS & GOSSIP:**\n${news.map(n => `- [${n.source}] ${n.title}: ${n.summary}`).join('\n')}`
+        : 'No specific news available.';
 
     return `
-    You are the **Fantasy Premier Wolf**, an elite, aggressive FPL strategist. 
-    Analyze this team for GW${currentGw}. 
-    ${toneInstruction}
+You are the **Fantasy Premier Wolf** — an elite, aggressive FPL strategist with zero tolerance for bad decisions.
+Analyse this team and produce a CONCRETE, EXECUTABLE plan for GW${picks.entry_history.event + 1}.
+${toneInstruction}
 
-    User Team: ${teamName}
-    Manager: ${managerName}
-    Overall Rank: ${overallRank}
-    Total Points: ${totalPoints}
-    Current GW Live Points: ${gwPoints}
+**MANAGER:**
+- Team: ${teamName} | Manager: ${managerName}
+- Overall Rank: ${overallRank.toLocaleString()} | Total Points: ${totalPoints} | GW Points: ${gwPoints}
 
-    **TEAM DATA:**
-    ${JSON.stringify(myPlayers, null, 2)}
-    
-    **FINANCES:**
-    - Current Bank: £${bank}m
-    - **Available Free Transfers for Next GW: ${netFT}**
-      (Note: This count accounts for any removed players in the current draft plan.)
-    - Chips Played: ${chipsUsed}
+**CURRENT SQUAD (positions 1-11 are starting XI, 12-15 are bench):**
+${JSON.stringify(myPlayers, null, 2)}
 
-    **MARKET DATA (Top Buy Targets & Trends):**
-    ${JSON.stringify(topMarketTargets, null, 2)}
+**FINANCES:**
+- Bank: £${bank}m
+- Free Transfers Available Next GW: ${transfersAvailable}
+- Taking a hit costs 4 points per additional transfer
+- Chips Used: ${chipsUsedNames}
+- **Chips Still Available: ${availableChipNames}**
 
-    ${newsContext}
+**TOP BUY TARGETS (not in squad, sorted by ep_next):**
+${JSON.stringify(topMarketTargets, null, 2)}
 
-    **CRITICAL RULES:**
-    1. **Strict Budget**: Any suggested transfer MUST be affordable. [New Player Cost] <= [Sold Player Cost] + [Current Bank].
-    2. **Market Sentiment & Template Awareness**:
-       - If a player is "Template Essential" (Ownership > 30% AND positive sentiment), do NOT suggest selling them unless they have a severe red injury flag or are suspended. 
-       - If you MUST suggest selling a highly-owned player, you must provide a "Meta-Defying" justification.
-    3. **Zero Hallucination**: If you suggest a player NOT in the MARKET DATA, assume they are premium (£8.0m+) unless certain.
-    4. **News Integration**: If any news items are relevant (e.g., injuries, transfer rumors), explicitely mention them to justify your tips.
-    5. **Clarity**: Use "Overall Rank" instead of "OR" to avoid confusion.
+${newsContext}
 
-    **OUTPUT FORMAT (Verified Markdown):**
+**MANDATORY RULES — VIOLATIONS MAKE THE PLAN INVALID:**
+1. **Budget**: For each transfer, [buy_price] ≤ [sell_price of outgoing player] + [bank]. The bank updates after each transfer. DO THE MATHS.
+2. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD).
+3. **Blank GWs**: Do NOT recommend buying a player who has "No fixture (blank GW)" unless using Free Hit chip.
+4. **Hits**: Only recommend extra transfers (hits, -4pts each) if the expected gain clearly outweighs the cost. Justify explicitly.
+5. **Chip Logic**: Only recommend a chip if conditions genuinely warrant it (e.g. Bench Boost only if bench is strong, Triple Captain only if standout double-GW captain, Free Hit only for a severe blank/double GW). Do not force chips.
+6. **Feasibility**: Every player you recommend buying MUST appear in the TOP BUY TARGETS list above (since that is the only price data you have). Do not invent players.
 
-    > ⚠️ DEV MODE ACTIVE: You MUST include a "Source" and "Why included" field for every single recommendation, player mention, and claim. Do not skip these fields. If you omit them, the output is invalid.
+**OUTPUT FORMAT:**
 
-    ## 🚨 TL;DR: Immediate Action
-    (One sentence: "Sell [Out] for [In].")
-    - **Source:** [e.g. "Market Data — ep_next" / "News: BBC Sport" / "Team Stats — form"]
-    - **Why included:** [e.g. "Highest ep_next of affordable options at £6.5m"]
+## 🐺 THE WOLF'S VERDICT
+(Brief roast/praise of the team situation in 2-3 sentences)
 
-    ## 1. Top Targets to BUY
-    For each player, use this exact format:
-    ### [Player] (Team) — £Price
-    - Sentiment: [Trending Up/Down]
-    - **Source:** [exactly which data — Market Data / News article title & source]
-    - **Why included:** [exact stat or quote from the data that justifies this]
+## 📋 THE PLAN
+State the exact plan clearly:
+- **Transfers**: list each one as "[OUT] (£X.Xm) → [IN] (£X.Xm)"
+- **Hits taken**: X (-Xpts)
+- **Bank after**: £X.Xm
+- **Chip**: [chip name] OR None
+- **Captain**: [Name] | **Vice-Captain**: [Name]
+- **Why this captain**: (one line)
 
-    ## 2. Issues & Fixes
-    | Player | Issue | Fix | Priority | Cost Check | Sentiment | Source | Why Included |
-    |---|---|---|---|---|---|---|---|
-    | [name] | [issue] | [fix] | [H/M/L] | [£X.Xm — Affordable?] | [Essential?] | [data source] | [specific reason] |
+## 🔍 PLAYER-BY-PLAYER BREAKDOWN
+For each transfer OUT: why they're being dropped (fixture, form, injury, price)
+For each transfer IN: why they're being brought in (fixture, ep_next, form, value)
 
-    ## 3. Captaincy & Strategy
-    ### Captain Pick
-    - **Pick:** [Name]
-    - **Source:** [data point — e.g. "form: 8.2, ep_next: 9.1 from Market Data"]
-    - **Why included:** [why this stat makes them the best captain]
+## ⚠️ RISKS & ALTERNATIVES
+What could go wrong, and backup options if budget is tighter.
 
-    ### Strategy
-    - **Approach:** [Attack/Defend rank]
-    - **Source:** [what data drives this]
-    - **Why included:** [reasoning]
+---WOLF_PLAN_JSON---
+Output a single JSON object on ONE line (no line breaks inside) with this exact structure:
+{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":null,"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0}
 
-    Every single bullet point and table row MUST have Source and Why Included populated. No exceptions.
-    `;
+Rules for the JSON:
+- Use EXACT web_name values from the squad/targets data above (copy-paste, do not paraphrase)
+- chip must be one of: null, "wildcard", "freehit", "bboost", "3xc"
+- If no transfers, use empty array []
+- Output ONLY the JSON on that line, nothing else after the JSON
+---END_WOLF_PLAN---
+`;
 };
 
 export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1000): Promise<string> => {
@@ -162,9 +174,7 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(isLocal ? {
                 contents: [{ parts: [{ text: prompt }] }]
             } : { prompt })
@@ -177,7 +187,6 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return fetchGeminiAnalysis(prompt, retries - 1, delay * 2);
             }
-
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
             const message = errorData.error?.message || errorData.details || errorData.error || response.statusText;
             throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
@@ -185,11 +194,11 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
 
         const data = await response.json();
         if (isLocal) {
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || "No analysis generated.";
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated.';
         }
-        return data.text || "No analysis generated.";
+        return data.text || 'No analysis generated.';
     } catch (error: any) {
-        console.error("Fetch Error:", error);
-        throw new Error(error.message || "Network Error");
+        console.error('Fetch Error:', error);
+        throw new Error(error.message || 'Network Error');
     }
 };

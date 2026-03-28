@@ -49,9 +49,10 @@ export const fetchPlayerSummary = async (id: number): Promise<any> => {
     }
 };
 
-export const fetchFixtures = async (): Promise<any[]> => {
+export const fetchFixtures = async (eventId?: number): Promise<any[]> => {
     try {
-        const response = await fetch('/api/fixtures/');
+        const url = eventId ? `/api/fixtures/?event=${eventId}` : '/api/fixtures/';
+        const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`Error fetching fixtures: ${response.statusText}`);
         }
