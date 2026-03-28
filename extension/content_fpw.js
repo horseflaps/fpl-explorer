@@ -19,9 +19,14 @@ function sendFpwToken() {
 // Send on load
 sendFpwToken();
 
-// Re-send if localStorage changes (e.g. user logs in/out)
+// Re-send if localStorage changes in another tab
 window.addEventListener('storage', (e) => {
     if (e.key === 'token') sendFpwToken();
+});
+
+// Re-send when user logs in (same tab — storage event doesn't fire for same-tab changes)
+window.addEventListener('fpw-login', () => {
+    sendFpwToken();
 });
 
 // Listen for popup requesting the FPW token

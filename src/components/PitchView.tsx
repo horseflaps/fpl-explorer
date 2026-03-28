@@ -394,12 +394,17 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                 const fetchData = async (gw: number) => {
                     try {
-                        const livePicks = await fetchLivePicks();
-                        const [picks, live, trans] = await Promise.all([
-                            livePicks ? Promise.resolve(livePicks) : fetchEntryPicks(entryId, gw),
+                        // Only use live picks for the current GW — historical GWs need the actual squad from that week
+                        const livePicks = gw === currentGwId ? await fetchLivePicks() : null;
+                        const [picksOrPublic, live, trans] = await Promise.all([
+                            fetchEntryPicks(entryId, gw),
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
+                        // Merge: live squad + public entry_history (points/rank) for current GW
+                        const picks = livePicks
+                            ? { ...livePicks, entry_history: picksOrPublic?.entry_history ?? null }
+                            : picksOrPublic;
                         return { picks, live, trans };
                     } catch (e: any) {
                         // If future GW returns 404, we need to handle it

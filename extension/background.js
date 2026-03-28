@@ -28,9 +28,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     if (msg.type === 'FPW_TOKEN_FOUND' && msg.fpwToken) {
         const origin = (msg.origin || 'http://localhost:3001').replace('5173', '3001');
-        chrome.storage.local.set({ fpwToken: msg.fpwToken, fpwOrigin: origin }, () => {
-            chrome.storage.local.get(['fplToken', 'fplRefreshToken', 'fplExpiresAt', 'fplEntryId', 'fpwConnected', 'manuallyDisconnected'], (data) => {
-                if (data.fplToken && !data.fpwConnected && !data.manuallyDisconnected) {
+        chrome.storage.local.get(['fplToken', 'fplRefreshToken', 'fplExpiresAt', 'fplEntryId', 'fpwToken', 'fpwConnected', 'manuallyDisconnected'], (data) => {
+            const isNewLogin = msg.fpwToken !== data.fpwToken;
+            // If this is a fresh FPW login (new token), reset connected state so auto-connect can proceed
+            const updates = { fpwToken: msg.fpwToken, fpwOrigin: origin };
+            if (isNewLogin) updates.fpwConnected = false;
+
+            chrome.storage.local.set(updates, () => {
+                const alreadyConnected = data.fpwConnected && !isNewLogin;
+                if (data.fplToken && !alreadyConnected && !data.manuallyDisconnected) {
                     fetch(`${origin}/api/fpl/token`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${msg.fpwToken}` },

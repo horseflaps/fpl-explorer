@@ -70,12 +70,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         setFplEntryId(d.fpl_entry_id);
                         const connected = !!d.fpl_connected;
                         setFplConnected(connected);
-                        if (initialFplCheckDone.current) {
-                            // Connected transition
+                        if (!initialFplCheckDone.current) {
+                            // First check after login — show modal if already connected
+                            if (connected) setShowFplConnectedModal(true);
+                        } else {
+                            // Subsequent checks — only fire on genuine transitions
                             if (connected && !prevFplConnected.current) {
                                 setShowFplConnectedModal(true);
                             }
-                            // Disconnected transition
                             if (!connected && prevFplConnected.current) {
                                 setShowFplDisconnectedToast(true);
                                 setTimeout(() => setShowFplDisconnectedToast(false), 5000);
@@ -95,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = (newToken: string, newUser: User) => {
         localStorage.setItem('token', newToken);
+        window.dispatchEvent(new CustomEvent('fpw-login', { detail: { token: newToken } }));
         setToken(newToken);
         setUser(newUser);
         setLoginGlow(true);

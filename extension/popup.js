@@ -41,9 +41,24 @@ async function getFpwTokenFromTab() {
                 t.url.includes('localhost:3001')
             ));
             if (!fpwTab) { resolve(null); return; }
+
+            // Try content script first
             chrome.tabs.sendMessage(fpwTab.id, { type: 'GET_FPW_TOKEN' }, (response) => {
-                if (chrome.runtime.lastError) { resolve(null); return; }
-                resolve(response?.fpwToken || null);
+                if (!chrome.runtime.lastError && response?.fpwToken) {
+                    resolve(response.fpwToken);
+                    return;
+                }
+                // Fallback: read localStorage directly (works even if content script isn't injected yet)
+                chrome.scripting.executeScript({
+                    target: { tabId: fpwTab.id },
+                    func: () => localStorage.getItem('token')
+                }, (results) => {
+                    if (chrome.runtime.lastError || !results?.[0]?.result) {
+                        resolve(null);
+                        return;
+                    }
+                    resolve(results[0].result);
+                });
             });
         });
     });
@@ -153,7 +168,8 @@ async function autoConnect(fplToken, fpwToken, origin) {
 
 async function sendTokenToFPW(msgElId) {
     const stored = await new Promise(r => chrome.storage.local.get(['fpwToken', 'fpwOrigin'], r));
-    const fpwToken = stored?.fpwToken || null;
+    const liveToken = await getFpwTokenFromTab();
+    const fpwToken = liveToken || stored?.fpwToken || null;
     const origin = (stored?.fpwOrigin || 'http://localhost:3001').replace(/\/$/, '').replace('5173', '3001');
 
     if (!fpwToken) {
