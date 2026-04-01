@@ -66,11 +66,40 @@ function initDb() {
             else console.log('[DB] Analyses table ready.');
         });
 
+        // Cached Lineups Table — stores the last live lineup per user+entry
+        db.run(`CREATE TABLE IF NOT EXISTS cached_lineups (
+            user_id INTEGER NOT NULL,
+            entry_id INTEGER NOT NULL,
+            picks_data TEXT NOT NULL,
+            gameweek INTEGER,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, entry_id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating cached_lineups table:', err.message);
+            else console.log('[DB] Cached lineups table ready.');
+        });
+
         // Migration: Add FPL session columns
         db.run("ALTER TABLE users ADD COLUMN fpl_session TEXT", () => {});
         db.run("ALTER TABLE users ADD COLUMN fpl_entry_id INTEGER", () => {});
         db.run("ALTER TABLE users ADD COLUMN fpl_refresh_token TEXT", () => {});
         db.run("ALTER TABLE users ADD COLUMN fpl_expires_at INTEGER", () => {});
+
+        // TV Broadcast Cache Table — stores full event result per event+country
+        // Drop old per-fixture schema if it exists, then recreate
+        db.run(`DROP TABLE IF EXISTS tv_cache`, () => {
+            db.run(`CREATE TABLE IF NOT EXISTS tv_cache (
+                event_id INTEGER NOT NULL,
+                country_code TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (event_id, country_code)
+            )`, (err) => {
+                if (err) console.error('[DB] Error creating tv_cache table:', err.message);
+                else console.log('[DB] TV cache table ready.');
+            });
+        });
 
         // News Articles Table
         db.run(`CREATE TABLE IF NOT EXISTS articles (

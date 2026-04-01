@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader2, Trash2, ArrowRight, Shirt, Activity, Search, X } from 'lucide-react';
+import { Loader2, Trash2, ArrowRight, Shirt, Activity, Search, X, Wifi } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -22,7 +22,7 @@ interface SavedAnalysis {
 }
 
 const MyTeamsView: React.FC = () => {
-    const { user, token } = useAuth();
+    const { user, token, fplEntryId, fplConnected } = useAuth();
     const navigate = useNavigate();
     const [tab, setTab] = useState<'teams' | 'analyses'>('teams');
 
@@ -81,6 +81,10 @@ const MyTeamsView: React.FC = () => {
         fetchTeams();
         fetchAnalyses();
     }, [user, token]);
+
+    useEffect(() => {
+        if (fplConnected) fetchTeams();
+    }, [fplConnected]);
 
     const confirmDeleteTeam = async () => {
         if (teamToDelete === null) return;
@@ -187,14 +191,22 @@ const MyTeamsView: React.FC = () => {
                         <div className="grid gap-4">
                             {teams.map((team) => {
                                 const data = JSON.parse(team.team_data);
+                                const isConnected = fplConnected && fplEntryId !== null && data.entry_id === fplEntryId;
                                 return (
                                     <div
                                         key={team.id}
                                         onClick={() => navigate(`/analyse?entry=${data.entry_id}`)}
-                                        className="bg-slate-900/50 border border-slate-700 rounded-xl p-4 flex items-center justify-between hover:bg-slate-800 hover:border-[#00ff87]/50 transition-all cursor-pointer group"
+                                        className={`bg-slate-900/50 border rounded-xl p-4 flex items-center justify-between hover:bg-slate-800 transition-all cursor-pointer group ${isConnected ? 'border-[#00ff87]/50 hover:border-[#00ff87]' : 'border-slate-700 hover:border-[#00ff87]/50'}`}
                                     >
                                         <div>
-                                            <div className="font-bold text-white text-lg group-hover:text-[#00ff87] transition-colors">{team.name.replace(/\s*\(GW\d+\)$/, '')}</div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="font-bold text-white text-lg group-hover:text-[#00ff87] transition-colors">{team.name.replace(/\s*\(GW\d+\)$/, '')}</div>
+                                                {isConnected && (
+                                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00ff87]/10 border border-[#00ff87]/30 text-[#00ff87] text-xs font-bold">
+                                                        <Wifi size={10} /> Connected
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="text-xs text-gray-500">Saved on {new Date(team.created_at).toLocaleDateString()}</div>
                                             <div className="text-xs text-gray-400 mt-1">Manager: {data.manager || 'Unknown'}</div>
                                         </div>

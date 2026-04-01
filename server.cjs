@@ -111,7 +111,19 @@ app.get('/api/user/teams', (req, res) => {
 
         db.all('SELECT * FROM saved_teams WHERE user_id = ? ORDER BY created_at DESC', [decoded.id], (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json(rows);
+            // Deduplicate by entry_id (keep first/oldest per entry)
+            const seen = new Set();
+            const deduped = rows.filter(row => {
+                try {
+                    const d = JSON.parse(row.team_data);
+                    if (d.entry_id) {
+                        if (seen.has(d.entry_id)) return false;
+                        seen.add(d.entry_id);
+                    }
+                } catch {}
+                return true;
+            });
+            res.json(deduped);
         });
     });
 });
@@ -140,6 +152,41 @@ app.post('/api/user/teams', (req, res) => {
         db.run('INSERT INTO saved_teams (user_id, name, team_data) VALUES (?, ?, ?)', [decoded.id, name, dataStr], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.status(201).json({ id: this.lastID, name });
+        });
+    });
+});
+
+// --- Lineup Cache Routes ---
+
+// Save (upsert) latest live lineup for an entry
+app.put('/api/user/lineup-cache/:entry_id', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    const entryId = Number(req.params.entry_id);
+    const { picks_data, gameweek, chips_data } = req.body;
+    if (!picks_data || !Array.isArray(picks_data)) return res.status(400).json({ error: 'picks_data array required' });
+    // Add chips_data column if it doesn't exist yet (migration)
+    db.run("ALTER TABLE cached_lineups ADD COLUMN chips_data TEXT", () => {});
+    db.run(
+        `INSERT OR REPLACE INTO cached_lineups (user_id, entry_id, picks_data, gameweek, chips_data, updated_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        [decoded.id, entryId, JSON.stringify(picks_data), gameweek || null, chips_data ? JSON.stringify(chips_data) : null],
+        (err) => err ? res.status(500).json({ error: err.message }) : res.json({ ok: true })
+    );
+});
+
+// Get cached lineup for an entry
+app.get('/api/user/lineup-cache/:entry_id', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    const entryId = Number(req.params.entry_id);
+    db.get('SELECT * FROM cached_lineups WHERE user_id = ? AND entry_id = ?', [decoded.id, entryId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.json(null);
+        res.json({
+            ...row,
+            picks_data: JSON.parse(row.picks_data),
+            chips_data: row.chips_data ? JSON.parse(row.chips_data) : null,
         });
     });
 });
@@ -447,8 +494,7 @@ app.get('/api/fpl/my-picks', async (req, res) => {
             const response = await fetch(`https://fantasy.premierleague.com/api/my-team/${row.fpl_entry_id}/`, { headers });
 
             if (response.status === 401) {
-                // Token expired — clear it
-                db.run('UPDATE users SET fpl_session = NULL WHERE id = ?', [decoded.id]);
+                // Don't clear session here — status endpoint is the authority for that
                 return res.status(401).json({ error: 'FPL token expired. Reconnect via browser extension.' });
             }
 
@@ -473,13 +519,45 @@ app.get('/api/fpl/my-picks', async (req, res) => {
                     is_vice_captain: p.is_vice_captain,
                 })),
                 _live: true,
-                _transfers: data.transfers || null, // { limit, made, cost, bank, value }
+                _transfers: data.transfers || null,
+                _chips: data.chips || [],
             });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     });
 });
+
+// Auto-save a connected team to saved_teams if not already saved
+async function autoSaveConnectedTeam(userId, entryId) {
+    if (!entryId) return;
+    const existing = await new Promise((resolve, reject) =>
+        db.get("SELECT id FROM saved_teams WHERE user_id = ? AND json_extract(team_data, '$.entry_id') = ?",
+            [userId, entryId], (err, row) => err ? reject(err) : resolve(row))
+    );
+    if (existing) return;
+
+    const entryRes = await fetch(`https://fantasy.premierleague.com/api/entry/${entryId}/`);
+    if (!entryRes.ok) return;
+    const entryData = await entryRes.json();
+
+    const teamName = entryData.name || `Team ${entryId}`;
+    const manager = `${entryData.player_first_name || ''} ${entryData.player_last_name || ''}`.trim() || 'Unknown';
+    const teamDataStr = JSON.stringify({ entry_id: entryId, manager });
+
+    // Use INSERT with NOT EXISTS to prevent duplicates even under race conditions
+    await new Promise((resolve, reject) =>
+        db.run(
+            `INSERT INTO saved_teams (user_id, name, team_data)
+             SELECT ?, ?, ?
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM saved_teams WHERE user_id = ? AND json_extract(team_data, '$.entry_id') = ?
+             )`,
+            [userId, teamName, teamDataStr, userId, entryId],
+            (err) => err ? reject(err) : resolve()
+        )
+    );
+}
 
 // Receive FPL token from browser extension
 app.post('/api/fpl/token', async (req, res) => {
@@ -514,6 +592,7 @@ app.post('/api/fpl/token', async (req, res) => {
     db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
         if (err) return res.status(500).json({ error: err.message });
         delete fplValidationCache[decoded.id];
+        if (resolvedEntryId) autoSaveConnectedTeam(decoded.id, resolvedEntryId).catch(() => {});
         res.json({ ok: true, entry_id: resolvedEntryId });
     });
 });
@@ -604,6 +683,194 @@ app.use('/api/fpl-auth', async (req, res) => {
             res.status(500).json({ error: error.message });
         }
     });
+});
+
+// --- TV Broadcast Data ---
+// Maps channel name substrings (lowercase) to logo URLs we control
+const CHANNEL_LOGO_MAP = {
+    'sky sports':   'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png',
+    'tnt sports':   'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/TNT_Sports_logo.svg/120px-TNT_Sports_logo.svg.png',
+    'amazon prime': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png',
+    'peacock':      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/NBCUniversal_Peacock_Logo.svg/120px-NBCUniversal_Peacock_Logo.svg.png',
+    'nbc':          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/NBC_Sports_logo.svg/120px-NBC_Sports_logo.svg.png',
+    'dazn':         'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png',
+    'optus':        'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Optus_Sport_logo.png/120px-Optus_Sport_logo.png',
+    'canal':        'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Canal%2B_logo.svg/120px-Canal%2B_logo.svg.png',
+    'bein':         'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png',
+    'viaplay':      'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png',
+    'movistar':     'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Movistar%2B_logo.svg/120px-Movistar%2B_logo.svg.png',
+    'supersport':   'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/SuperSport_Logo.svg/120px-SuperSport_Logo.svg.png',
+    'espn':         'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/120px-ESPN_wordmark.svg.png',
+    'star':         'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Star_Sports_logo.svg/120px-Star_Sports_logo.svg.png',
+    'jio':          'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/JioCinema_logo.svg/120px-JioCinema_logo.svg.png',
+    'virgin':       'https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Virgin_Media_logo_2021.svg/120px-Virgin_Media_logo_2021.svg.png',
+};
+
+function resolveChannelLogo(name) {
+    const lower = name.toLowerCase();
+    for (const [key, url] of Object.entries(CHANNEL_LOGO_MAP)) {
+        if (lower.includes(key)) return url;
+    }
+    return null;
+}
+
+// GET /api/fixtures/tv?event=32&country=GB
+app.get('/api/fixtures/tv', async (req, res) => {
+    const eventId = parseInt(req.query.event);
+    const country = (req.query.country || 'GB').toUpperCase();
+    if (!eventId) return res.status(400).json({ error: 'event required' });
+    console.log(`[TV] Request: event=${eventId} country=${country}`);
+
+    try {
+        // Check cache (valid for 6 hours)
+        const cached = await new Promise((resolve, reject) =>
+            db.get(
+                `SELECT result_json FROM tv_cache
+                 WHERE event_id = ? AND country_code = ? AND fetched_at > datetime('now', '-6 hours')`,
+                [eventId, country],
+                (err, row) => err ? reject(err) : resolve(row)
+            )
+        ).catch(() => null); // Don't fail if table not ready yet
+
+        if (cached) {
+            console.log(`[TV] Serving from cache: event ${eventId} / ${country}`);
+            return res.json(JSON.parse(cached.result_json));
+        }
+
+        // Fetch FPL fixtures for this event to get kickoff times
+        const fplRes = await fetch(`https://fantasy.premierleague.com/api/fixtures/?event=${eventId}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        const fixtures = await fplRes.json();
+        console.log(`[TV] FPL fixtures for event ${eventId}: ${fixtures?.length ?? 0}`);
+        if (!fixtures?.length) return res.json({});
+
+        console.log(`[TV] Launching puppeteer to scrape livesoccertv.com for ${country}`);
+
+        const puppeteer = require('puppeteer');
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        });
+
+        // Map our 2-letter country codes to livesoccertv.com country slugs
+        const LSTV_COUNTRY = {
+            GB: 'united-kingdom', IE: 'ireland', US: 'usa', CA: 'canada',
+            AU: 'australia', NZ: 'new-zealand', DE: 'germany', FR: 'france',
+            ES: 'spain', IT: 'italy', NL: 'netherlands', NO: 'norway',
+            SE: 'sweden', DK: 'denmark', FI: 'finland', IN: 'india',
+            JP: 'japan', KR: 'south-korea', SG: 'singapore',
+            SA: 'saudi-arabia', AE: 'united-arab-emirates', ZA: 'south-africa',
+            BR: 'brazil', AR: 'argentina', MX: 'mexico',
+        };
+
+        const result = {};
+        try {
+            const page = await browser.newPage();
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+            await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
+
+            const countrySlug = LSTV_COUNTRY[country] || 'united-kingdom';
+            const url = `https://www.livesoccertv.com/competitions/english-premier-league/`;
+            console.log(`[TV] Navigating to ${url}`);
+            await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+
+            // Set country via their selector if possible, then extract match rows
+            // livesoccertv.com shows matches with TV channels per country
+            // Try to click the country selector
+            try {
+                await page.evaluate((slug) => {
+                    // Look for country links/buttons
+                    const links = Array.from(document.querySelectorAll('a[href*="' + slug + '"], button'));
+                    const match = links.find(el => el.textContent.toLowerCase().includes(slug.replace('-', ' ').split(' ')[0]));
+                    if (match) match.click();
+                }, countrySlug);
+                await new Promise(r => setTimeout(r, 2000));
+            } catch {}
+
+            // Extract all match rows with TV channel info
+            const matchRows = await page.evaluate(() => {
+                const rows = [];
+                // livesoccertv typically uses table rows or match blocks
+                document.querySelectorAll('tr.match, tr[class*="match"], .match-row, [data-match]').forEach(row => {
+                    const timeEl = row.querySelector('.time, .match-time, [class*="time"]');
+                    const homeEl = row.querySelector('.home, .team-home, [class*="home"]');
+                    const awayEl = row.querySelector('.away, .team-away, [class*="away"]');
+                    const tvEls = row.querySelectorAll('img[src*="channel"], img[src*="tv"], .channel img, .tv-channel img, [class*="channel"] img');
+                    if (timeEl || homeEl) {
+                        const channels = Array.from(tvEls).map(img => ({
+                            name: img.alt || img.title || '',
+                            src: img.src || '',
+                        }));
+                        rows.push({
+                            time: timeEl?.textContent?.trim() || '',
+                            home: homeEl?.textContent?.trim() || '',
+                            away: awayEl?.textContent?.trim() || '',
+                            channels,
+                        });
+                    }
+                });
+                return rows;
+            });
+
+            console.log(`[TV] livesoccertv rows found: ${matchRows.length}`);
+            if (matchRows.length > 0) console.log(`[TV] Sample row:`, JSON.stringify(matchRows[0]));
+
+            // If livesoccertv scraping got channels, match to FPL fixtures
+            // Otherwise fall back to kickoff-time heuristic for UK
+            const hasChannelData = matchRows.some(r => r.channels.length > 0);
+
+            if (hasChannelData) {
+                for (const fixture of fixtures) {
+                    if (!fixture.kickoff_time) { result[fixture.id] = []; continue; }
+                    const ko = new Date(fixture.kickoff_time);
+                    const koHHMM = `${String(ko.getUTCHours()).padStart(2,'0')}:${String(ko.getUTCMinutes()).padStart(2,'0')}`;
+                    // Match by kickoff time (UTC)
+                    const matched = matchRows.find(r => r.time && r.time.includes(koHHMM));
+                    if (!matched) { result[fixture.id] = []; continue; }
+                    const channels = matched.channels
+                        .filter(c => c.name || c.src)
+                        .map(c => ({ name: c.name, logo: resolveChannelLogo(c.name) || c.src || null }));
+                    result[fixture.id] = channels;
+                    console.log(`[TV] Fixture ${fixture.id} (${koHHMM}): ${channels.map(c => c.name).join(', ') || 'no channels'}`);
+                }
+            } else {
+                // Heuristic fallback for UK — known Sky/TNT slot patterns
+                console.log('[TV] No channel data from livesoccertv, using UK kickoff heuristic');
+                const SKY = { name: 'Sky Sports', logo: CHANNEL_LOGO_MAP['sky sports'] };
+                const TNT = { name: 'TNT Sports', logo: CHANNEL_LOGO_MAP['tnt sports'] };
+                for (const fixture of fixtures) {
+                    if (!fixture.kickoff_time) { result[fixture.id] = []; continue; }
+                    const ko = new Date(fixture.kickoff_time);
+                    const utcDay = ko.getUTCDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
+                    const utcH = ko.getUTCHours();
+                    const utcM = ko.getUTCMinutes();
+                    const isSat = utcDay === 6, isSun = utcDay === 0, isMon = utcDay === 1, isFri = utcDay === 5;
+                    const isBlackout = isSat && utcM === 0 && (utcH === 14 || utcH === 15);
+                    if (isBlackout) { result[fixture.id] = []; continue; }
+                    // Sat 12:30 (11:30 UTC in BST) or 12:30 UTC in GMT → always Sky
+                    if (isSat && utcM === 30 && (utcH === 11 || utcH === 12)) { result[fixture.id] = [SKY]; continue; }
+                    // Sun 16:30 (15:30 UTC in BST) → usually Sky Super Sunday
+                    if (isSun && utcM === 30 && (utcH === 15 || utcH === 16)) { result[fixture.id] = [SKY]; continue; }
+                    // All other televised slots — could be Sky or TNT
+                    result[fixture.id] = [SKY, TNT];
+                }
+            }
+        } finally {
+            await browser.close();
+        }
+
+        db.run(
+            `INSERT OR REPLACE INTO tv_cache (event_id, country_code, result_json, fetched_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+            [eventId, country, JSON.stringify(result)]
+        );
+
+        console.log('[TV] Final result sample:', JSON.stringify(Object.entries(result).slice(0, 2)));
+        res.json(result);
+    } catch (e) {
+        console.error('[TV] Error:', e.message);
+        res.status(500).json({ error: 'Failed to fetch broadcast data' });
+    }
 });
 
 // FPL API Proxy

@@ -15,7 +15,10 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''token:'''', d.get\\(''''token_endpoint''''\\)\\); print\\(''''grants:'''', d.get\\(''''grant_types_supported''''\\)\\)\")",
       "Bash(curl -s --max-time 10 \"https://auth.pingone.eu/68340de1-dfb9-412e-937c-20172986d129/as/.well-known/openid-configuration\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''grants:'''', d.get\\(''''grant_types_supported''''\\)\\); print\\(''''token:'''', d.get\\(''''token_endpoint''''\\)\\)\")",
-      "Bash(node generate-icons.cjs)"
+      "Bash(node generate-icons.cjs)",
+      "Bash(find /y/Projects/FPL/api -type f -name *.ts -o -name *.js)",
+      "Bash(find /y/Projects/FPL/server -type f -name *.ts -o -name *.js)",
+      "Bash(node -e \"const sqlite3=require\\(''sqlite3''\\).verbose\\(\\);const db=new sqlite3.Database\\(''./users.db''\\);db.run\\(''DELETE FROM tv_cache'',\\(\\)=>{console.log\\(''cleared''\\);db.close\\(\\);}\\)\")"
     ]
   }
 }

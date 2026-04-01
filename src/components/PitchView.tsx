@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw, LogIn, Unlink } from 'lucide-react';
+import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw, LogIn, Unlink, Tv } from 'lucide-react';
 import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse, NewsArticle } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName, fetchFixtures } from '../services/api';
 
@@ -228,10 +228,17 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [entryHistory, setEntryHistory] = useState<any | null>(null);
     const [transfers, setTransfers] = useState<any[]>([]);
     const [availableTransfers, setAvailableTransfers] = useState<number>(1); // Default to 1
+    const [chips, setChips] = useState<any[]>([]);
     const [liveStats, setLiveStats] = useState<Record<number, LiveStats>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isReconstructed, setIsReconstructed] = useState(false);
+    const [isCachedLineup, setIsCachedLineup] = useState(false);
+    const [cachedLineupGw, setCachedLineupGw] = useState<number | null>(null);
+    const [cachedLineupDate, setCachedLineupDate] = useState<string | null>(null);
+    const [gwFixtures, setGwFixtures] = useState<any[]>([]);
+    const [userCountry, setUserCountry] = useState<string>('GB');
+    const [tvData, setTvData] = useState<Record<number, { name: string; logo: string | null }[]>>({});
 
     // Edit Team / Analysis Flow State
     const [isEditingTeam, setIsEditingTeam] = useState(false);
@@ -251,6 +258,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     const isOwnTeam = !!(fplConnected && fplEntryId && entryId === fplEntryId);
     const hasLivePicksRef = useRef(false);
+    const failedKeyRef = useRef<string | null>(null);
+    const currentGwId = useMemo(() => data.events.find(e => e.is_current)?.id || 0, [data.events]);
+    const nextGwId = useMemo(() => data.events.find(e => e.is_next)?.id || currentGwId, [data.events, currentGwId]);
 
     const [isSaving, setIsSaving] = useState(false);
     const [savedTeamIds, setSavedTeamIds] = useState<number[]>([]);
@@ -333,6 +343,63 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         fetchEntryDetails();
     }, [entryId]);
 
+    // Fetch next GW fixtures
+    useEffect(() => {
+        if (!nextGwId) return;
+        fetchFixtures(nextGwId).then(setGwFixtures).catch(() => {});
+    }, [nextGwId]);
+
+    // Detect user country via IP geolocation, fallback to timezone
+    useEffect(() => {
+        const tzCountryMap: Record<string, string> = {
+            'Europe/London': 'GB', 'Europe/Dublin': 'IE',
+            'Europe/Berlin': 'DE', 'Europe/Vienna': 'AT', 'Europe/Zurich': 'CH',
+            'Europe/Paris': 'FR', 'Europe/Amsterdam': 'NL',
+            'Europe/Madrid': 'ES', 'Europe/Rome': 'IT',
+            'Europe/Oslo': 'NO', 'Europe/Stockholm': 'SE',
+            'Europe/Copenhagen': 'DK', 'Europe/Helsinki': 'FI',
+            'Europe/Lisbon': 'PT', 'Europe/Warsaw': 'PL',
+            'America/Toronto': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA', 'America/Winnipeg': 'CA',
+            'America/Sao_Paulo': 'BR', 'America/Manaus': 'BR', 'America/Fortaleza': 'BR',
+            'America/Argentina/Buenos_Aires': 'AR', 'America/Santiago': 'CL', 'America/Bogota': 'CO',
+            'America/Mexico_City': 'MX', 'America/Cancun': 'MX',
+            'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'Australia/Brisbane': 'AU', 'Australia/Perth': 'AU',
+            'Pacific/Auckland': 'NZ',
+            'Asia/Tokyo': 'JP', 'Asia/Seoul': 'KR',
+            'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN',
+            'Asia/Singapore': 'SG', 'Asia/Kuala_Lumpur': 'MY', 'Asia/Jakarta': 'ID',
+            'Asia/Riyadh': 'SA', 'Asia/Dubai': 'AE', 'Asia/Qatar': 'QA', 'Asia/Kuwait': 'KW', 'Asia/Bahrain': 'BH',
+            'Africa/Johannesburg': 'ZA', 'Africa/Lagos': 'NG', 'Africa/Nairobi': 'KE',
+        };
+        const detectCountry = async () => {
+            try {
+                const controller = new AbortController();
+                const t = setTimeout(() => controller.abort(), 3000);
+                const res = await fetch('https://ipapi.co/country/', { signal: controller.signal });
+                clearTimeout(t);
+                if (res.ok) {
+                    const code = (await res.text()).trim();
+                    if (code.length === 2) { setUserCountry(code); return; }
+                }
+            } catch {}
+            // Fallback: timezone
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const fromTz = tzCountryMap[tz];
+            if (fromTz) { setUserCountry(fromTz); return; }
+            if (tz.startsWith('America/')) setUserCountry('US');
+        };
+        detectCountry();
+    }, []);
+
+    // Fetch per-match TV broadcast data once country and GW are known (only once per session)
+    useEffect(() => {
+        if (!nextGwId || !userCountry || Object.keys(tvData).length > 0) return;
+        fetch(`/api/fixtures/tv?event=${nextGwId}&country=${userCountry}`)
+            .then(r => r.ok ? r.json() : {})
+            .then(d => setTvData(d))
+            .catch(() => {});
+    }, [nextGwId, userCountry]);
+
     // Check if team is already saved
     useEffect(() => {
         const checkSavedTeams = async () => {
@@ -369,6 +436,10 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 return;
             }
 
+            // Stop retrying if this entry+gw+ownTeam combo already hard-failed
+            const failKey = `${entryId}:${selectedGw}:${isOwnTeam}`;
+            if (failedKeyRef.current === failKey) return;
+
             // If live picks were already loaded, don't overwrite them when connection drops
             if (hasLivePicksRef.current && !isOwnTeam) return;
 
@@ -377,7 +448,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 setError(null);
 
                 // Check if we are trying to load a future gameweek
-                const currentGwId = data.events.find(e => e.is_current)?.id || 0;
 
                 // 1. Fetch Basic Data
                 // If viewing own connected team, use authenticated my-team endpoint for live picks
@@ -389,13 +459,17 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             const data = await res.json();
                             hasLivePicksRef.current = true;
                             console.log('[PitchView] Using live authenticated picks');
-                            // Use real transfer count from FPL
-                            console.log('[PitchView] Raw _transfers from FPL:', JSON.stringify(data._transfers));
                             if (data._transfers?.limit != null) {
                                 const realFreeTransfers = data._transfers.limit - (data._transfers.made || 0);
                                 setAvailableTransfers(Math.max(0, realFreeTransfers));
-                                console.log(`[PitchView] Live transfers — limit: ${data._transfers.limit}, made: ${data._transfers.made}, free: ${realFreeTransfers}`);
                             }
+                            if (data._chips?.length) setChips(data._chips);
+                            // Save to lineup cache (fire-and-forget)
+                            fetch(`/api/user/lineup-cache/${entryId}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                body: JSON.stringify({ picks_data: data.picks, gameweek: currentGwId, chips_data: data._chips || [] })
+                            }).catch(() => {});
                             return data;
                         }
                     } catch {}
@@ -403,37 +477,92 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 };
 
                 const fetchData = async (gw: number) => {
+                    // Only fetch live picks for the current GW
+                    const livePicks = gw === currentGwId ? await fetchLivePicks() : null;
+
+                    // If we have live picks, public picks are optional (only needed for entry_history)
+                    if (livePicks) {
+                        const [publicPicks, live, trans] = await Promise.all([
+                            fetchEntryPicks(entryId, gw).catch(() => null),
+                            fetchLiveEvent(gw),
+                            fetchEntryTransfers(entryId)
+                        ]);
+                        return {
+                            picks: { ...livePicks, entry_history: (publicPicks as any)?.entry_history ?? null },
+                            live,
+                            trans
+                        };
+                    }
+
+                    // No live picks — fetch public picks and fail gracefully if unavailable
                     try {
-                        // Only use live picks for the current GW — historical GWs need the actual squad from that week
-                        const livePicks = gw === currentGwId ? await fetchLivePicks() : null;
                         const [picksOrPublic, live, trans] = await Promise.all([
                             fetchEntryPicks(entryId, gw),
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
-                        // Merge: live squad + public entry_history (points/rank) for current GW
-                        const picks = livePicks
-                            ? { ...livePicks, entry_history: picksOrPublic?.entry_history ?? null }
-                            : picksOrPublic;
-                        return { picks, live, trans };
+                        return { picks: picksOrPublic, live, trans };
                     } catch (e: any) {
-                        // If future GW returns 404, we need to handle it
                         if (gw > currentGwId) {
-                            console.warn(`Picks for GW${gw} not available yet (Deadline not passed). Falling back to reconstruction.`);
-                            const [prevPicks, live, trans] = await Promise.all([
-                                fetchEntryPicks(entryId, currentGwId),
-                                fetchLiveEvent(gw),
-                                fetchEntryTransfers(entryId)
-                            ]);
-                            return { picks: prevPicks, live, trans, isReconstructed: true };
+                            console.warn(`Picks for GW${gw} not available yet. Falling back to reconstruction.`);
+                            try {
+                                const [prevPicks, live, trans] = await Promise.all([
+                                    fetchEntryPicks(entryId, currentGwId),
+                                    fetchLiveEvent(gw),
+                                    fetchEntryTransfers(entryId)
+                                ]);
+                                return { picks: prevPicks, live, trans, isReconstructed: true };
+                            } catch (_ignored: any) {
+                                throw new Error('NO_PICKS_YET');
+                            }
+                        }
+                        if (gw === currentGwId) {
+                            const prevGw = Math.max(1, currentGwId - 1);
+                            console.warn(`Picks for current GW${gw} not available yet. Falling back to GW${prevGw}.`);
+                            try {
+                                const [prevPicks, live, trans] = await Promise.all([
+                                    fetchEntryPicks(entryId, prevGw),
+                                    fetchLiveEvent(gw),
+                                    fetchEntryTransfers(entryId)
+                                ]);
+                                return { picks: prevPicks, live, trans, isReconstructed: true };
+                            } catch (_ignored: any) {
+                                // Try saved lineup cache before giving up
+                                if (token) {
+                                    try {
+                                        const cacheRes = await fetch(`/api/user/lineup-cache/${entryId}`, {
+                                            headers: { Authorization: `Bearer ${token}` }
+                                        });
+                                        if (cacheRes.ok) {
+                                            const cached = await cacheRes.json();
+                                            if (cached?.picks_data?.length) {
+                                                const live = await fetchLiveEvent(gw).catch(() => null);
+                                                if (cached.chips_data?.length) setChips(cached.chips_data);
+                                                return {
+                                                    picks: { active_chip: null, automatic_subs: [], entry_history: null, picks: cached.picks_data },
+                                                    live,
+                                                    trans: [],
+                                                    isCachedLineup: true,
+                                                    cachedGw: cached.gameweek,
+                                                    cachedDate: cached.updated_at,
+                                                };
+                                            }
+                                        }
+                                    } catch (_cacheErr: any) {}
+                                }
+                                throw new Error('NO_PICKS_YET');
+                            }
                         }
                         throw e;
                     }
                 };
 
-                const { picks, live, trans, isReconstructed: recon } = await fetchData(selectedGw);
+                const { picks, live, trans, isReconstructed: recon, isCachedLineup: cached, cachedGw: cachedGwVal, cachedDate } = await fetchData(selectedGw) as any;
 
                 setIsReconstructed(recon || false);
+                setIsCachedLineup(cached || false);
+                setCachedLineupGw(cachedGwVal || null);
+                setCachedLineupDate(cachedDate || null);
                 let processedPicks = { ...picks };
 
                 // 2. Automatic Transfer Replay Logic (The "Live Sync")
@@ -472,7 +601,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     setLiveStats(stats);
                 }
             } catch (err: any) {
-                setError(err.message || 'Failed to load team data.');
+                const failKey = `${entryId}:${selectedGw}:${isOwnTeam}`;
+                failedKeyRef.current = failKey;
+                setError(err.message === 'NO_PICKS_YET' ? 'NO_PICKS_YET' : (err.message || 'Failed to load team data.'));
                 console.error(err);
             } finally {
                 setLoading(false);
@@ -480,16 +611,20 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         };
 
         loadPicks();
-    }, [entryId, selectedGw, data.events, isOwnTeam]);
+    }, [entryId, selectedGw, currentGwId, isOwnTeam]);
 
-    // Reset live picks flag when navigating to a different team
+    // Reset flags when navigating to a different team
     useEffect(() => {
         hasLivePicksRef.current = false;
+        failedKeyRef.current = null;
+        setIsCachedLineup(false);
+        setCachedLineupGw(null);
+        setCachedLineupDate(null);
+        setChips([]);
     }, [entryId]);
 
     const handlePrevGw = () => setSelectedGw(prev => Math.max(1, prev - 1));
     const handleNextGw = () => {
-        const currentGwId = data.events.find(e => e.is_current)?.id || 0;
         setSelectedGw(prev => Math.min(currentGwId, prev + 1));
     };
 
@@ -825,6 +960,22 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         return (
             <div className="flex justify-center items-center h-96">
                 <Loader2 className="w-8 h-8 text-fpl-green animate-spin" />
+            </div>
+        );
+    }
+
+    if (error === 'NO_PICKS_YET') {
+        return (
+            <div className="flex flex-col items-center justify-center h-96 text-center space-y-3">
+                <div className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+                    <Loader2 size={28} className="text-[#00ff87]" />
+                </div>
+                <p className="text-white font-bold text-lg">No picks available yet</p>
+                <p className="text-gray-400 text-sm max-w-xs">
+                    {isOwnTeam
+                        ? `GW${currentGwId} picks aren't locked in yet — the deadline hasn't passed. Check back after the gameweek starts.`
+                        : 'This team has no gameweek history available yet.'}
+                </p>
             </div>
         );
     }
@@ -1798,6 +1949,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             <div className="max-w-4xl mx-auto px-4 md:px-0 mb-2 flex flex-col md:flex-row items-center md:items-end gap-3 justify-center md:justify-start">
                 <div className="flex items-center gap-3">
                     <h2 className="text-xl md:text-3xl font-black text-white tracking-tight text-center md:text-left">{entryData?.name || 'My Team'}</h2>
+                    {isOwnTeam && (
+                        <div className="flex items-center gap-1 bg-[#00ff87]/10 border border-[#00ff87]/40 rounded-full px-2.5 py-1 shadow-[0_0_10px_rgba(0,255,135,0.15)]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#00ff87] animate-pulse" />
+                            <span className="text-[#00ff87] text-[10px] font-black uppercase tracking-widest">Live</span>
+                        </div>
+                    )}
                     {entryData && (
                         <div className="bg-slate-800 border border-white/10 rounded-lg px-3 py-1 flex items-center gap-2 transform -skew-x-6 shadow-lg">
                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest not-italic skew-x-6">Wolf's Rating</span>
@@ -1879,6 +2036,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         </div>
                     )}
+                    {isCachedLineup && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                            <span className="bg-[#00ff87] text-[#37003c] text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Saved Lineup{cachedLineupGw ? ` · GW${cachedLineupGw}` : ''}</span>
+                            <div className="group relative">
+                                <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
+                                    Last saved lineup from when this team was connected{cachedLineupDate ? ` · ${new Date(cachedLineupDate).toLocaleDateString()}` : ''}.
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
                 {!isEditingTeam && (
                     <button
@@ -1944,6 +2113,105 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     <div className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-1 group-hover:text-[#02efff]/60 transition-colors">Transfers →</div>
                 </div>
             </div>
+
+            {/* Chips — shown when entry history is available (works for all teams) */}
+            {entryHistory && (() => {
+                // Prefer live FPL chips data; fall back to deriving from entryHistory.chips
+                const rawChips: any[] = chips.length > 0 ? chips : (() => {
+                    const usedMap: Record<string, number[]> = {};
+                    (entryHistory.chips || []).forEach((c: any) => {
+                        if (!usedMap[c.name]) usedMap[c.name] = [];
+                        usedMap[c.name].push(c.event);
+                    });
+                    const result: any[] = [];
+                    const ALL = [
+                        { name: 'wildcard', id: 1 },
+                        { name: 'freehit', id: 4 },
+                        { name: 'bboost', id: 2 },
+                        { name: '3xc', id: 5 },
+                    ];
+                    ALL.forEach(({ name, id }) => {
+                        const gwList = usedMap[name] || [];
+                        if (name === 'wildcard') {
+                            if (gwList.length === 0) {
+                                result.push({ id, name, status_for_entry: 'available', played_by_entry: [] });
+                            } else {
+                                result.push({ id, name, status_for_entry: 'played', played_by_entry: [gwList[0]] });
+                                const second = gwList[1];
+                                result.push({ id: id + 10, name, status_for_entry: second ? 'played' : 'available', played_by_entry: second ? [second] : [] });
+                            }
+                        } else {
+                            if (gwList.length === 0) {
+                                result.push({ id, name, status_for_entry: 'available', played_by_entry: [] });
+                            } else {
+                                result.push({ id, name, status_for_entry: 'played', played_by_entry: [gwList[0]] });
+                            }
+                        }
+                    });
+                    return result;
+                })();
+
+                const CHIP_META: Record<string, { label: string; abbr: string; color: string }> = {
+                    wildcard: { label: 'Wildcard', abbr: 'WC', color: '#00ff87' },
+                    freehit: { label: 'Free Hit', abbr: 'FH', color: '#02efff' },
+                    bboost: { label: 'Bench Boost', abbr: 'BB', color: '#ff9f43' },
+                    '3xc': { label: 'Triple Captain', abbr: 'TC', color: '#ffd700' },
+                };
+                // Deduplicate wildcards: keep first always; keep second only if available/active
+                const seen = new Set<string>();
+                const displayChips = rawChips.filter(c => {
+                    const key = c.name;
+                    if (seen.has(key)) return c.status_for_entry === 'available' || picksData?.active_chip === c.name;
+                    seen.add(key);
+                    return true;
+                });
+                return (
+                    <div className="max-w-4xl mx-auto px-2 md:px-0">
+                        <div className="text-white/40 text-[10px] uppercase font-black tracking-widest mb-2">Chips</div>
+                        <div className="grid grid-cols-4 gap-2 md:gap-3">
+                            {displayChips.map((chip: any) => {
+                                const meta = CHIP_META[chip.name];
+                                if (!meta) return null;
+                                const isActive = picksData?.active_chip === chip.name;
+                                const isAvailable = chip.status_for_entry === 'available';
+                                const usedGw = chip.played_by_entry?.[0] ?? null;
+                                return (
+                                    <div
+                                        key={chip.id ?? chip.name}
+                                        className={`relative flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center
+                                            ${isActive
+                                                ? 'border-[#00ff87] bg-[#00ff87]/10 shadow-[0_0_15px_rgba(0,255,135,0.2)]'
+                                                : isAvailable
+                                                    ? 'border-white/20 bg-white/5 hover:border-white/40'
+                                                    : 'border-white/10 bg-white/3 opacity-50'
+                                            }`}
+                                    >
+                                        <span
+                                            className="text-lg font-black tracking-tight leading-none mb-1"
+                                            style={{ color: isAvailable || isActive ? meta.color : '#ffffff40' }}
+                                        >
+                                            {meta.abbr}
+                                        </span>
+                                        <span className={`text-[9px] font-bold uppercase tracking-wide ${isAvailable || isActive ? 'text-white/80' : 'text-white/30'}`}>
+                                            {meta.label}
+                                        </span>
+                                        <span className={`mt-1.5 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-sm tracking-tighter
+                                            ${isActive
+                                                ? 'bg-[#00ff87] text-[#37003c]'
+                                                : isAvailable
+                                                    ? 'bg-white/10 text-white/60'
+                                                    : 'bg-white/5 text-white/30'
+                                            }`}
+                                        >
+                                            {isActive ? 'Active' : isAvailable ? 'Available' : usedGw ? `Used GW${usedGw}` : 'Used'}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* TOTW Link */}
             <div className="max-w-4xl mx-auto text-center -mt-2">
@@ -2160,6 +2428,203 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* GW Fixtures */}
+                        {gwFixtures.length > 0 && (() => {
+                            const PL_BROADCASTERS: Record<string, { name: string; logo: string; bg: string }[]> = {
+                                GB: [
+                                    { name: 'Sky Sports', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
+                                    { name: 'TNT Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/TNT_Sports_logo.svg/120px-TNT_Sports_logo.svg.png', bg: '#ff6b00' },
+                                    { name: 'Amazon Prime', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png', bg: '#00a8e0' },
+                                ],
+                                IE: [
+                                    { name: 'Sky Sports', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
+                                    { name: 'Virgin Media', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Virgin_Media_logo_2021.svg/120px-Virgin_Media_logo_2021.svg.png', bg: '#e40000' },
+                                ],
+                                US: [
+                                    { name: 'Peacock', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/NBCUniversal_Peacock_Logo.svg/120px-NBCUniversal_Peacock_Logo.svg.png', bg: '#000000' },
+                                    { name: 'NBC Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/NBC_Sports_logo.svg/120px-NBC_Sports_logo.svg.png', bg: '#003087' },
+                                ],
+                                CA: [
+                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
+                                ],
+                                AU: [
+                                    { name: 'Optus Sport', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Optus_Sport_logo.png/120px-Optus_Sport_logo.png', bg: '#ff6600' },
+                                ],
+                                NZ: [
+                                    { name: 'Sky Sport NZ', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
+                                ],
+                                DE: [
+                                    { name: 'Sky DE', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Sky_Deutschland_logo_2020.svg/120px-Sky_Deutschland_logo_2020.svg.png', bg: '#0b3d91' },
+                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
+                                ],
+                                FR: [
+                                    { name: 'Canal+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Canal%2B_logo.svg/120px-Canal%2B_logo.svg.png', bg: '#111111' },
+                                    { name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' },
+                                ],
+                                ES: [
+                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
+                                    { name: 'Movistar+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Movistar%2B_logo.svg/120px-Movistar%2B_logo.svg.png', bg: '#009ee3' },
+                                ],
+                                IT: [
+                                    { name: 'Sky Italia', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Sky_Deutschland_logo_2020.svg/120px-Sky_Deutschland_logo_2020.svg.png', bg: '#0b3d91' },
+                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
+                                ],
+                                NL: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
+                                NO: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }, { name: 'TV2', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/TV2_Norway_logo.svg/120px-TV2_Norway_logo.svg.png', bg: '#e40000' }],
+                                SE: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
+                                DK: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
+                                FI: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
+                                IN: [
+                                    { name: 'Star Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Star_Sports_logo.svg/120px-Star_Sports_logo.svg.png', bg: '#e40000' },
+                                    { name: 'JioCinema', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/JioCinema_logo.svg/120px-JioCinema_logo.svg.png', bg: '#6f2da8' },
+                                ],
+                                JP: [{ name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' }],
+                                KR: [{ name: 'Coupang Play', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Coupang_Play_logo.svg/120px-Coupang_Play_logo.svg.png', bg: '#c00' }],
+                                SG: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
+                                SA: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
+                                AE: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
+                                QA: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
+                                ZA: [{ name: 'SuperSport', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/SuperSport_Logo.svg/120px-SuperSport_Logo.svg.png', bg: '#004b8d' }],
+                                BR: [
+                                    { name: 'ESPN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/120px-ESPN_wordmark.svg.png', bg: '#e40000' },
+                                    { name: 'Disney+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/120px-Disney%2B_logo.svg.png', bg: '#001489' },
+                                ],
+                                AR: [
+                                    { name: 'ESPN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/120px-ESPN_wordmark.svg.png', bg: '#e40000' },
+                                    { name: 'Disney+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/120px-Disney%2B_logo.svg.png', bg: '#001489' },
+                                ],
+                                MX: [{ name: 'Sky Mexico', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' }],
+                            };
+                            // UK/Ireland: Sat 3pm is a blackout (not televised) — used as fallback when tvData is empty
+                            const isBlackout = (kickoffTime: string | null): boolean => {
+                                if (!kickoffTime) return true;
+                                if (userCountry !== 'GB' && userCountry !== 'IE') return false;
+                                const ko = new Date(kickoffTime);
+                                const utcDay = ko.getUTCDay();
+                                const utcHour = ko.getUTCHours();
+                                const utcMin = ko.getUTCMinutes();
+                                return utcDay === 6 && utcMin === 0 && (utcHour === 14 || utcHour === 15);
+                            };
+
+                            return (
+                            <div className="relative mt-6 max-w-2xl mx-auto px-2 md:px-4 pb-4">
+                                <div className="flex items-center justify-center gap-2 mb-3">
+                                    <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/20" />
+                                    <span className="text-[#00ff87] text-[10px] uppercase font-black tracking-widest px-2">GW{nextGwId} Fixtures</span>
+                                    <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/20" />
+                                </div>
+                                <div className="rounded-[20px] border border-white/10 overflow-hidden shadow-2xl divide-y divide-white/5">
+                                    {gwFixtures.map((fix: any, idx: number) => {
+                                        const homeTeam = data.teams.find(t => t.id === fix.team_h);
+                                        const awayTeam = data.teams.find(t => t.id === fix.team_a);
+                                        const started = fix.started;
+                                        const finished = fix.finished;
+                                        const isLive = started && !finished;
+                                        const ko = fix.kickoff_time ? new Date(fix.kickoff_time) : null;
+                                        const day = ko ? ko.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBC';
+                                        const time = ko ? ko.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+                                        const hScore = fix.team_h_score ?? null;
+                                        const aScore = fix.team_a_score ?? null;
+                                        const fixChannels = tvData[fix.id] ?? null;
+                                        // If TV data hasn't loaded yet, fall back to blackout heuristic
+                                        const onTv = fixChannels !== null ? fixChannels.length > 0 : !isBlackout(fix.kickoff_time);
+                                        const primaryChannel = fixChannels?.[0] ?? null;
+                                        return (
+                                            <div
+                                                key={fix.id}
+                                                className={`flex items-center gap-2 px-3 py-3 transition-colors
+                                                    ${isLive ? 'bg-[#00ff87]/5' : idx % 2 === 0 ? 'bg-white/[0.03]' : 'bg-transparent'}
+                                                    hover:bg-white/[0.06]`}
+                                            >
+                                                {/* TV channel badge — left rail */}
+                                                {(() => {
+                                                    const BADGE: Record<string, { abbr: string; color: string }> = {
+                                                        'sky sports': { abbr: 'SKY', color: '#0063cc' },
+                                                        'tnt sports': { abbr: 'TNT', color: '#ff6b00' },
+                                                        'amazon prime': { abbr: 'PRIME', color: '#00a8e0' },
+                                                        'peacock': { abbr: 'PCK', color: '#9b59b6' },
+                                                        'dazn': { abbr: 'DAZN', color: '#ff0050' },
+                                                        'optus': { abbr: 'OPTUS', color: '#ff6600' },
+                                                        'bein': { abbr: 'beIN', color: '#8b0000' },
+                                                        'viaplay': { abbr: 'VIA', color: '#3d00e0' },
+                                                        'canal': { abbr: 'C+', color: '#111' },
+                                                        'espn': { abbr: 'ESPN', color: '#cc0000' },
+                                                        'supersport': { abbr: 'SS', color: '#004b8d' },
+                                                    };
+                                                    const getBadge = (name: string) => {
+                                                        const lower = name.toLowerCase();
+                                                        for (const [key, val] of Object.entries(BADGE)) {
+                                                            if (lower.includes(key)) return val;
+                                                        }
+                                                        return { abbr: name.slice(0, 4).toUpperCase(), color: '#555' };
+                                                    };
+                                                    if (!onTv) return <div className="w-10 shrink-0" />;
+                                                    if (!fixChannels || fixChannels.length === 0) {
+                                                        return <div className="w-10 shrink-0 flex items-center justify-center"><Tv size={12} className="text-white/30" /></div>;
+                                                    }
+                                                    return (
+                                                        <div className="w-10 shrink-0 flex flex-col items-center gap-0.5">
+                                                            {fixChannels.slice(0, 2).map((ch: any, i: number) => {
+                                                                const b = getBadge(ch.name);
+                                                                return (
+                                                                    <span
+                                                                        key={i}
+                                                                        title={ch.name}
+                                                                        className="text-[7px] font-black tracking-tight px-1 py-0.5 rounded"
+                                                                        style={{ background: b.color + '33', color: b.color, border: `1px solid ${b.color}55` }}
+                                                                    >
+                                                                        {b.abbr}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {/* Home */}
+                                                <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
+                                                    <span className="text-sm font-bold text-white truncate">{homeTeam?.name ?? '?'}</span>
+                                                    {homeTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${homeTeam.code}.png`} alt="" className="w-6 h-6 object-contain shrink-0" />}
+                                                </div>
+
+                                                {/* Score / Time */}
+                                                <div className="flex flex-col items-center shrink-0 min-w-[90px]">
+                                                    {started ? (
+                                                        <>
+                                                            <span className={`text-base font-black tabular-nums tracking-tight ${isLive ? 'text-[#00ff87]' : 'text-white/60'}`}>
+                                                                {hScore} – {aScore}
+                                                            </span>
+                                                            {isLive && (
+                                                                <span className="flex items-center gap-1 text-[8px] font-black text-[#00ff87] uppercase tracking-widest mt-0.5">
+                                                                    <span className="w-1 h-1 rounded-full bg-[#00ff87] animate-pulse inline-block" />
+                                                                    Live
+                                                                </span>
+                                                            )}
+                                                            {finished && (
+                                                                <span className="text-[8px] font-bold text-white/30 uppercase tracking-wider mt-0.5">FT</span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span className="text-[11px] font-black text-white/80">{time}</span>
+                                                            <span className="text-[9px] font-bold text-white/40 mt-0.5">{day}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                {/* Away */}
+                                                <div className="flex-1 flex items-center justify-start gap-2 min-w-0">
+                                                    {awayTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${awayTeam.code}.png`} alt="" className="w-6 h-6 object-contain shrink-0" />}
+                                                    <span className="text-sm font-bold text-white truncate">{awayTeam?.name ?? '?'}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            );
+                        })()}
                     </div> {/* End of Pitch/Bench Container Column */}
                 </div>
             )}
