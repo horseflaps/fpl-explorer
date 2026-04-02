@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import { useAuth } from '../context/AuthContext';
@@ -11,9 +11,8 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
-    const [isLoginOpen, setIsLoginOpen] = useState(false);
     const navigate = useNavigate();
-    const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast } = useAuth();
+    const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast, isLoginOpen, setIsLoginOpen } = useAuth();
 
     const handleFplConnectedDismiss = async () => {
         dismissFplConnectedModal();
@@ -22,7 +21,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
             try {
                 const r = await fetch('/api/fpl/status', { headers: { Authorization: `Bearer ${token}` } });
                 if (r.ok) { const d = await r.json(); entryId = d.fpl_entry_id; }
-            } catch {}
+            } catch { }
         }
         navigate(entryId ? `/analyse?entry=${entryId}` : '/analyse');
     };
@@ -37,6 +36,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/fixtures', label: 'Fixtures', icon: Calendar },
         { path: '/gameweek', label: 'Gameweek', icon: Activity },
         { path: '/standings', label: 'Standings', icon: Trophy },
+        { path: '/setup', label: 'Setup', icon: Workflow },
     ] as const;
 
     return (
@@ -154,13 +154,12 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                     <div className="p-4 space-y-4 border-t border-slate-800/50 bg-slate-900/30">
                         {/* Auth Section */}
                         {user ? (
-                            <div className={`rounded-lg p-3 border flex items-center justify-between transition-all duration-700 ${
-                                loginGlow
-                                    ? 'bg-green-950/40 border-[#00ff87] shadow-[0_0_18px_rgba(0,255,135,0.45)]'
-                                    : fplConnected
-                                        ? 'bg-green-950/30 border-green-800/50'
-                                        : 'bg-slate-800/50 border-slate-700/50'
-                            }`}>
+                            <div className={`rounded-lg p-3 border flex items-center justify-between transition-all duration-700 ${loginGlow
+                                ? 'bg-green-950/40 border-[#00ff87] shadow-[0_0_18px_rgba(0,255,135,0.45)]'
+                                : fplConnected
+                                    ? 'bg-green-950/30 border-green-800/50'
+                                    : 'bg-slate-800/50 border-slate-700/50'
+                                }`}>
                                 <div className="flex items-center gap-3">
                                     <div className="bg-blue-600/20 p-2 rounded-full text-blue-400">
                                         <UserIcon size={16} />

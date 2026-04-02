@@ -78,9 +78,13 @@ export const fetchLiveEvent = async (eventId: number): Promise<any> => {
     }
 };
 
-export const fetchEntryPicks = async (entryId: number, eventId: number): Promise<EntryPicksResponse> => {
+export const fetchEntryPicks = async (entryId: number, eventId: number): Promise<EntryPicksResponse | null> => {
     try {
         const response = await fetch(`/api/entry/${entryId}/event/${eventId}/picks/`);
+        if (response.status === 404) {
+            // Expected for future gameweeks, return null instead of throwing error
+            return null;
+        }
         if (!response.ok) {
             throw new Error(`Error fetching entry picks: ${response.statusText}`);
         }
@@ -164,18 +168,9 @@ export const searchTeamsByName = async (query: string): Promise<any[]> => {
     }
 };
 
-export const fetchTransferStatus = async (entryId: number): Promise<any> => {
-    try {
-        const response = await fetch(`/api/entry/${entryId}/transfers-status/`);
-        if (!response.ok) {
-            // If public API doesn't allow this without auth, we might get 401/403.
-            // But we'll try as requested.
-            throw new Error(`Error fetching transfer status: ${response.statusText}`);
-        }
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.warn("Failed to fetch transfer status (might be private):", error);
-        return null; // Return null to handle gracefully
-    }
+export const fetchTransferStatus = async (_entryId: number): Promise<any> => {
+    // FPL API does not have a public 'transfers-status' endpoint for entry IDs.
+    // This is only available in the authenticated /api/my-team/ endpoint.
+    // Return null to trigger the history-based calculation fallback in the UI.
+    return null;
 };

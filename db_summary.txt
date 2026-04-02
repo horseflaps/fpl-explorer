@@ -1,15 +1,11 @@
 [
   {
     "source": "BBC Sport",
-    "count": 49
+    "count": 170
   },
   {
     "source": "FBref",
     "count": 4
-  },
-  {
-    "source": "Football Transfer League",
-    "count": 100
   },
   {
     "source": "Football-Data.co.uk",
@@ -17,7 +13,7 @@
   },
   {
     "source": "NewsNow",
-    "count": 48
+    "count": 225
   },
   {
     "source": "Sky Sports",

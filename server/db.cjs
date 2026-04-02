@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
-const DB_PATH = path.resolve(__dirname, '../users.db');
+const DB_PATH = 'T:\\My Drive\\FPL\\db\\users.db';
 
 // Ensure DB file exists (sqlite3 creates it, but good to be explicit about location)
 console.log(`[DB] Connecting to database at ${DB_PATH}`);

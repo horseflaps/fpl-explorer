@@ -17,7 +17,7 @@ import tempfile
 # Determine project root relative to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-FINAL_DB_PATH = os.path.join(PROJECT_ROOT, "fpl.db")
+FINAL_DB_PATH = r"T:\My Drive\FPL\db\fpl.db"
 
 # We write to a temp file in the SYSTEM TEMP dir (local SSD) to avoid network drive slowness
 # This brings speed back up to ~50k/sec even if Y: is a network drive

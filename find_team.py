@@ -1,7 +1,7 @@
 import sqlite3
 
 try:
-    conn = sqlite3.connect('fpl.db')
+    conn = sqlite3.connect('T:\\My Drive\\FPL\\db\\fpl.db')
     cursor = conn.cursor()
     cursor.execute("SELECT team_id, team_name, manager_name FROM teams WHERE team_name LIKE '%flapjacks%'")
     results = cursor.fetchall()

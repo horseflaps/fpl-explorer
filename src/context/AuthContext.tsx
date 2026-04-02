@@ -20,6 +20,9 @@ interface AuthContextType {
     login: (token: string, user: User) => void;
     logout: () => void;
     isAuthenticated: boolean;
+    extensionDetected: boolean;
+    isLoginOpen: boolean;
+    setIsLoginOpen: (open: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,8 +35,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [showFplConnectedModal, setShowFplConnectedModal] = useState(false);
     const [showFplDisconnectedToast, setShowFplDisconnectedToast] = useState(false);
     const [loginGlow, setLoginGlow] = useState(false);
+    const [extensionDetected, setExtensionDetected] = useState(false);
+    const [isLoginOpen, setIsLoginOpen] = useState(false);
     const prevFplConnected = useRef(false);
     const initialFplCheckDone = useRef(false);
+
+    useEffect(() => {
+        const check = () => {
+            if (document.documentElement.getAttribute('data-fpw-extension') === 'installed') {
+                setExtensionDetected(true);
+                return true;
+            }
+            return false;
+        };
+
+        if (check()) return;
+
+        const interval = setInterval(() => {
+            if (check()) clearInterval(interval);
+        }, 1000);
+
+        const timeout = setTimeout(() => clearInterval(interval), 5000);
+        return () => {
+            clearInterval(interval);
+            clearTimeout(timeout);
+        };
+    }, []);
 
     useEffect(() => {
         if (token && !user) {
@@ -71,8 +98,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         const connected = !!d.fpl_connected;
                         setFplConnected(connected);
                         if (!initialFplCheckDone.current) {
-                            // First check after login — show modal if already connected
-                            if (connected) setShowFplConnectedModal(true);
+                            // First check after login — show modal if already connected (once per session)
+                            if (connected && !sessionStorage.getItem('fpl_modal_shown')) {
+                                setShowFplConnectedModal(true);
+                                sessionStorage.setItem('fpl_modal_shown', 'true');
+                            }
                         } else {
                             // Subsequent checks — only fire on genuine transitions
                             if (connected && !prevFplConnected.current) {
@@ -97,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = (newToken: string, newUser: User) => {
         localStorage.setItem('token', newToken);
+        sessionStorage.removeItem('fpl_modal_shown');
         window.dispatchEvent(new CustomEvent('fpw-login', { detail: { token: newToken } }));
         setToken(newToken);
         setUser(newUser);
@@ -113,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }).catch(() => {});
         }
         localStorage.removeItem('token');
+        sessionStorage.removeItem('fpl_modal_shown');
         setToken(null);
         setUser(null);
         setFplEntryId(null);
@@ -130,6 +162,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             showFplDisconnectedToast,
             dismissFplDisconnectedToast: () => setShowFplDisconnectedToast(false),
             loginGlow,
+            extensionDetected,
+            isLoginOpen,
+            setIsLoginOpen,
             setFplEntryId, login, logout, isAuthenticated: !!user
         }}>
             {children}

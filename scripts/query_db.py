@@ -2,7 +2,7 @@ import sqlite3
 import argparse
 import os
 
-DB_NAME = "fpl.db"
+DB_NAME = r"T:\My Drive\FPL\db\fpl.db"
 
 def query_db(search_term=None, limit=10):
     if not os.path.exists(DB_NAME):

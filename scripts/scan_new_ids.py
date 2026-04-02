@@ -6,7 +6,7 @@ import argparse
 import random
 from datetime import datetime
 
-DB_NAME = "fpl.db"
+DB_NAME = r"T:\My Drive\FPL\db\fpl.db"
 BASE_URL = "https://fantasy.premierleague.com/api/entry/{}/"
 MAX_CONSECUTIVE_ERRORS = 50
 HEADERS = {

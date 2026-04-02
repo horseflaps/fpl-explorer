@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const DB_PATH = path.resolve(__dirname, 'users.db');
+const DB_PATH = 'T:\\My Drive\\FPL\\db\\users.db';
 const db = new sqlite3.Database(DB_PATH);
 
 console.log(`[Migration] Opening DB at ${DB_PATH}`);

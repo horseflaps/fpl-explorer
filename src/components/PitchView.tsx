@@ -261,6 +261,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const failedKeyRef = useRef<string | null>(null);
     const currentGwId = useMemo(() => data.events.find(e => e.is_current)?.id || 0, [data.events]);
     const nextGwId = useMemo(() => data.events.find(e => e.is_next)?.id || currentGwId, [data.events, currentGwId]);
+    const [fixturesGw, setFixturesGw] = useState<number | null>(null);
 
     const [isSaving, setIsSaving] = useState(false);
     const [savedTeamIds, setSavedTeamIds] = useState<number[]>([]);
@@ -316,7 +317,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         console.log(`[PitchView] Transfers from API: ${status.limit}`);
                     } else {
                         // Fallback: Check history for saved transfer
-                        console.log("[PitchView] Transfer API failed/empty, calculating from history...");
+                        console.log("[PitchView] Public entry: calculating free transfers from history...");
                         // Target the NEXT event (upcoming deadline) to get current available budget
                         // If no next event (end of season), fallback to current + 1 or just current.
                         const nextEvent = data.events.find(e => e.is_next);
@@ -343,14 +344,28 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         fetchEntryDetails();
     }, [entryId]);
 
-    // Fetch next GW fixtures
+    // Initialize fixturesGw when nextGwId is ready
     useEffect(() => {
-        if (!nextGwId) return;
-        fetchFixtures(nextGwId).then(setGwFixtures).catch(() => {});
-    }, [nextGwId]);
+        if (nextGwId && fixturesGw === null) {
+            setFixturesGw(nextGwId);
+        }
+    }, [nextGwId, fixturesGw]);
 
-    // Detect user country via IP geolocation, fallback to timezone
+    // Fetch fixtures for the selected fixturesGw
     useEffect(() => {
+        const gwToFetch = fixturesGw || nextGwId;
+        if (!gwToFetch) return;
+        fetchFixtures(gwToFetch).then(setGwFixtures).catch(() => { });
+    }, [fixturesGw, nextGwId]);
+
+    // Detect user country via IP geolocation, fallback to timezone (with URL override for testing)
+    useEffect(() => {
+        const override = searchParams.get('country');
+        if (override && override.length === 2) {
+            setUserCountry(override.toUpperCase());
+            return;
+        }
+
         const tzCountryMap: Record<string, string> = {
             'Europe/London': 'GB', 'Europe/Dublin': 'IE',
             'Europe/Berlin': 'DE', 'Europe/Vienna': 'AT', 'Europe/Zurich': 'CH',
@@ -372,6 +387,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             'Africa/Johannesburg': 'ZA', 'Africa/Lagos': 'NG', 'Africa/Nairobi': 'KE',
         };
         const detectCountry = async () => {
+            const cached = sessionStorage.getItem('user_country');
+            if (cached && cached.length === 2) { setUserCountry(cached); return; }
+
             try {
                 const controller = new AbortController();
                 const t = setTimeout(() => controller.abort(), 3000);
@@ -379,9 +397,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 clearTimeout(t);
                 if (res.ok) {
                     const code = (await res.text()).trim();
-                    if (code.length === 2) { setUserCountry(code); return; }
+                    if (code.length === 2) {
+                        setUserCountry(code);
+                        sessionStorage.setItem('user_country', code);
+                        return;
+                    }
                 }
-            } catch {}
+            } catch { }
             // Fallback: timezone
             const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const fromTz = tzCountryMap[tz];
@@ -391,14 +413,15 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         detectCountry();
     }, []);
 
-    // Fetch per-match TV broadcast data once country and GW are known (only once per session)
+    // Fetch per-match TV broadcast data once country and GW are known
     useEffect(() => {
-        if (!nextGwId || !userCountry || Object.keys(tvData).length > 0) return;
-        fetch(`/api/fixtures/tv?event=${nextGwId}&country=${userCountry}`)
+        const gwToFetch = fixturesGw || nextGwId;
+        if (!gwToFetch || !userCountry) return;
+        fetch(`/api/fixtures/tv?event=${gwToFetch}&country=${userCountry}`)
             .then(r => r.ok ? r.json() : {})
             .then(d => setTvData(d))
-            .catch(() => {});
-    }, [nextGwId, userCountry]);
+            .catch(() => { });
+    }, [fixturesGw, nextGwId, userCountry]);
 
     // Check if team is already saved
     useEffect(() => {
@@ -469,48 +492,51 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                 body: JSON.stringify({ picks_data: data.picks, gameweek: currentGwId, chips_data: data._chips || [] })
-                            }).catch(() => {});
+                            }).catch(() => { });
                             return data;
                         }
-                    } catch {}
+                    } catch { }
                     return null;
                 };
 
                 const fetchData = async (gw: number) => {
-                    // Only fetch live picks for the current GW
-                    const livePicks = gw === currentGwId ? await fetchLivePicks() : null;
+                    // Only fetch live picks for the current GW (or for reconstruction base)
+                    const livePicks = (gw >= currentGwId) ? await fetchLivePicks() : null;
 
                     // If we have live picks, public picks are optional (only needed for entry_history)
                     if (livePicks) {
                         const [publicPicks, live, trans] = await Promise.all([
-                            fetchEntryPicks(entryId, gw).catch(() => null),
+                            (gw <= currentGwId ? fetchEntryPicks(entryId, gw) : Promise.resolve(null)).catch(() => null),
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
                         return {
                             picks: { ...livePicks, entry_history: (publicPicks as any)?.entry_history ?? null },
                             live,
-                            trans
+                            trans,
+                            isReconstructed: false
                         };
                     }
 
                     // No live picks — fetch public picks and fail gracefully if unavailable
                     try {
                         const [picksOrPublic, live, trans] = await Promise.all([
-                            fetchEntryPicks(entryId, gw),
+                            (gw <= currentGwId ? fetchEntryPicks(entryId, gw) : Promise.resolve(null)),
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
+                        if (!picksOrPublic) throw new Error('NO_PICKS_YET');
                         return { picks: picksOrPublic, live, trans };
                     } catch (e: any) {
                         if (gw > currentGwId) {
                             console.warn(`Picks for GW${gw} not available yet. Falling back to reconstruction.`);
                             try {
                                 const [prevPicks, live, trans] = await Promise.all([
-                                    fetchEntryPicks(entryId, currentGwId),
+                                    (currentGwId > 0 ? fetchEntryPicks(entryId, currentGwId) : Promise.resolve(null)),
                                     fetchLiveEvent(gw),
                                     fetchEntryTransfers(entryId)
                                 ]);
+                                if (!prevPicks) throw new Error('NO_PICKS_YET');
                                 return { picks: prevPicks, live, trans, isReconstructed: true };
                             } catch (_ignored: any) {
                                 throw new Error('NO_PICKS_YET');
@@ -521,10 +547,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             console.warn(`Picks for current GW${gw} not available yet. Falling back to GW${prevGw}.`);
                             try {
                                 const [prevPicks, live, trans] = await Promise.all([
-                                    fetchEntryPicks(entryId, prevGw),
+                                    (prevGw > 0 ? fetchEntryPicks(entryId, prevGw) : Promise.resolve(null)),
                                     fetchLiveEvent(gw),
                                     fetchEntryTransfers(entryId)
                                 ]);
+                                if (!prevPicks) throw new Error('NO_PICKS_YET');
                                 return { picks: prevPicks, live, trans, isReconstructed: true };
                             } catch (_ignored: any) {
                                 // Try saved lineup cache before giving up
@@ -548,7 +575,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 };
                                             }
                                         }
-                                    } catch (_cacheErr: any) {}
+                                    } catch (_cacheErr: any) { }
                                 }
                                 throw new Error('NO_PICKS_YET');
                             }
@@ -570,13 +597,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 if (recon && trans && trans.length > 0) {
                     // We take the currentGw picks (fetched in fetchData fallback) 
                     // and apply transfers for the selectedGw.
-                    const relevantTransfers = trans.filter(t => t.event === selectedGw);
+                    const relevantTransfers = trans.filter((t: any) => t.event === selectedGw);
 
                     if (relevantTransfers.length > 0) {
                         console.log(`[AutoSync] Applying ${relevantTransfers.length} pending transfers for GW${selectedGw}`);
                         const newPicks = [...processedPicks.picks];
 
-                        relevantTransfers.forEach(t => {
+                        relevantTransfers.forEach((t: any) => {
                             const index = newPicks.findIndex(p => p.element === t.element_out);
                             if (index !== -1) {
                                 newPicks[index] = {
@@ -625,7 +652,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     const handlePrevGw = () => setSelectedGw(prev => Math.max(1, prev - 1));
     const handleNextGw = () => {
-        setSelectedGw(prev => Math.min(currentGwId, prev + 1));
+        setSelectedGw(prev => Math.min(38, prev + 1));
     };
 
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
@@ -663,7 +690,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         return (
             <div className="max-w-4xl mx-auto text-center space-y-8 animate-in fade-in zoom-in duration-500 py-12">
                 <div className="space-y-6">
-                    <h2 className="text-4xl font-black text-white tracking-tight">Manager Hub</h2>
+                    <h2 className="text-4xl font-black text-white tracking-tight">Team Search</h2>
                     <p className="text-gray-400 max-w-lg mx-auto">
                         Search by name, league, ID — or log in to load your team instantly.
                     </p>
@@ -1408,8 +1435,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // Categorize players by position for the pitch
     // 1: GKP, 2: DEF, 3: MID, 4: FWD
     const activePicks = (isEditingTeam && editedPicks) ? editedPicks : picksData;
-    const startingXI = activePicks?.picks.filter(p => p.position <= 11) || [];
-    const bench = activePicks?.picks.filter(p => p.position > 11) || [];
+    const startingXI = activePicks?.picks?.filter(p => p.position <= 11) || [];
+    const bench = activePicks?.picks?.filter(p => p.position > 11) || [];
 
     const gkp = startingXI.filter(p => getPlayer(p.element)?.element_type === 1);
     const def = startingXI.filter(p => getPlayer(p.element)?.element_type === 2);
@@ -2431,71 +2458,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                         {/* GW Fixtures */}
                         {gwFixtures.length > 0 && (() => {
-                            const PL_BROADCASTERS: Record<string, { name: string; logo: string; bg: string }[]> = {
-                                GB: [
-                                    { name: 'Sky Sports', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
-                                    { name: 'TNT Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/TNT_Sports_logo.svg/120px-TNT_Sports_logo.svg.png', bg: '#ff6b00' },
-                                    { name: 'Amazon Prime', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png', bg: '#00a8e0' },
-                                ],
-                                IE: [
-                                    { name: 'Sky Sports', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
-                                    { name: 'Virgin Media', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Virgin_Media_logo_2021.svg/120px-Virgin_Media_logo_2021.svg.png', bg: '#e40000' },
-                                ],
-                                US: [
-                                    { name: 'Peacock', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/NBCUniversal_Peacock_Logo.svg/120px-NBCUniversal_Peacock_Logo.svg.png', bg: '#000000' },
-                                    { name: 'NBC Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/NBC_Sports_logo.svg/120px-NBC_Sports_logo.svg.png', bg: '#003087' },
-                                ],
-                                CA: [
-                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
-                                ],
-                                AU: [
-                                    { name: 'Optus Sport', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Optus_Sport_logo.png/120px-Optus_Sport_logo.png', bg: '#ff6600' },
-                                ],
-                                NZ: [
-                                    { name: 'Sky Sport NZ', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' },
-                                ],
-                                DE: [
-                                    { name: 'Sky DE', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Sky_Deutschland_logo_2020.svg/120px-Sky_Deutschland_logo_2020.svg.png', bg: '#0b3d91' },
-                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
-                                ],
-                                FR: [
-                                    { name: 'Canal+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Canal%2B_logo.svg/120px-Canal%2B_logo.svg.png', bg: '#111111' },
-                                    { name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' },
-                                ],
-                                ES: [
-                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
-                                    { name: 'Movistar+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Movistar%2B_logo.svg/120px-Movistar%2B_logo.svg.png', bg: '#009ee3' },
-                                ],
-                                IT: [
-                                    { name: 'Sky Italia', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Sky_Deutschland_logo_2020.svg/120px-Sky_Deutschland_logo_2020.svg.png', bg: '#0b3d91' },
-                                    { name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' },
-                                ],
-                                NL: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
-                                NO: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }, { name: 'TV2', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/TV2_Norway_logo.svg/120px-TV2_Norway_logo.svg.png', bg: '#e40000' }],
-                                SE: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
-                                DK: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
-                                FI: [{ name: 'Viaplay', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png', bg: '#3d00e0' }],
-                                IN: [
-                                    { name: 'Star Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Star_Sports_logo.svg/120px-Star_Sports_logo.svg.png', bg: '#e40000' },
-                                    { name: 'JioCinema', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/JioCinema_logo.svg/120px-JioCinema_logo.svg.png', bg: '#6f2da8' },
-                                ],
-                                JP: [{ name: 'DAZN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png', bg: '#ff0050' }],
-                                KR: [{ name: 'Coupang Play', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Coupang_Play_logo.svg/120px-Coupang_Play_logo.svg.png', bg: '#c00' }],
-                                SG: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
-                                SA: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
-                                AE: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
-                                QA: [{ name: 'beIN Sports', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png', bg: '#8B0000' }],
-                                ZA: [{ name: 'SuperSport', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/SuperSport_Logo.svg/120px-SuperSport_Logo.svg.png', bg: '#004b8d' }],
-                                BR: [
-                                    { name: 'ESPN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/120px-ESPN_wordmark.svg.png', bg: '#e40000' },
-                                    { name: 'Disney+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/120px-Disney%2B_logo.svg.png', bg: '#001489' },
-                                ],
-                                AR: [
-                                    { name: 'ESPN', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/120px-ESPN_wordmark.svg.png', bg: '#e40000' },
-                                    { name: 'Disney+', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/120px-Disney%2B_logo.svg.png', bg: '#001489' },
-                                ],
-                                MX: [{ name: 'Sky Mexico', logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png', bg: '#0b3d91' }],
-                            };
                             // UK/Ireland: Sat 3pm is a blackout (not televised) — used as fallback when tvData is empty
                             const isBlackout = (kickoffTime: string | null): boolean => {
                                 if (!kickoffTime) return true;
@@ -2508,121 +2470,144 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             };
 
                             return (
-                            <div className="relative mt-6 max-w-2xl mx-auto px-2 md:px-4 pb-4">
-                                <div className="flex items-center justify-center gap-2 mb-3">
-                                    <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/20" />
-                                    <span className="text-[#00ff87] text-[10px] uppercase font-black tracking-widest px-2">GW{nextGwId} Fixtures</span>
-                                    <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/20" />
-                                </div>
-                                <div className="rounded-[20px] border border-white/10 overflow-hidden shadow-2xl divide-y divide-white/5">
-                                    {gwFixtures.map((fix: any, idx: number) => {
-                                        const homeTeam = data.teams.find(t => t.id === fix.team_h);
-                                        const awayTeam = data.teams.find(t => t.id === fix.team_a);
-                                        const started = fix.started;
-                                        const finished = fix.finished;
-                                        const isLive = started && !finished;
-                                        const ko = fix.kickoff_time ? new Date(fix.kickoff_time) : null;
-                                        const day = ko ? ko.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBC';
-                                        const time = ko ? ko.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
-                                        const hScore = fix.team_h_score ?? null;
-                                        const aScore = fix.team_a_score ?? null;
-                                        const fixChannels = tvData[fix.id] ?? null;
-                                        // If TV data hasn't loaded yet, fall back to blackout heuristic
-                                        const onTv = fixChannels !== null ? fixChannels.length > 0 : !isBlackout(fix.kickoff_time);
-                                        const primaryChannel = fixChannels?.[0] ?? null;
-                                        return (
-                                            <div
-                                                key={fix.id}
-                                                className={`flex items-center gap-2 px-3 py-3 transition-colors
+                                <div className="relative mt-8 max-w-4xl mx-auto px-2 md:px-4 pb-4">
+                                    <div className="flex items-center justify-center gap-2 mb-4">
+                                        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/20" />
+                                        <button
+                                            onClick={() => setFixturesGw((prev) => Math.max(1, (prev || nextGwId) - 1))}
+                                            className="text-[#00ff87]/60 hover:text-[#00ff87] px-2 py-1 flex items-center transition-colors"
+                                        >
+                                            <ChevronLeft size={20} />
+                                        </button>
+                                        <span className="text-[#00ff87] text-[14px] md:text-base uppercase font-black tracking-widest px-2">GW{fixturesGw || nextGwId} Fixtures</span>
+                                        <button
+                                            onClick={() => setFixturesGw((prev) => Math.min(38, (prev || nextGwId) + 1))}
+                                            className="text-[#00ff87]/60 hover:text-[#00ff87] px-2 py-1 flex items-center transition-colors"
+                                        >
+                                            <ChevronRight size={20} />
+                                        </button>
+                                        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/20" />
+                                    </div>
+                                    <div className="rounded-[20px] border border-white/10 overflow-hidden shadow-2xl divide-y divide-white/5">
+                                        {gwFixtures.map((fix: any, idx: number) => {
+                                            const homeTeam = data.teams.find(t => t.id === fix.team_h);
+                                            const awayTeam = data.teams.find(t => t.id === fix.team_a);
+                                            const started = fix.started;
+                                            const finished = fix.finished;
+                                            const isLive = started && !finished;
+                                            const ko = fix.kickoff_time ? new Date(fix.kickoff_time) : null;
+                                            const day = ko ? ko.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBC';
+                                            const time = ko ? ko.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+                                            const hScore = fix.team_h_score ?? null;
+                                            const aScore = fix.team_a_score ?? null;
+                                            const fixChannels = tvData[fix.id] ?? null;
+                                            // If TV data hasn't loaded yet, fall back to blackout heuristic
+                                            const onTv = fixChannels !== null ? fixChannels.length > 0 : !isBlackout(fix.kickoff_time);
+                                            return (
+                                                <div
+                                                    key={fix.id}
+                                                    className={`flex items-center gap-2 px-3 py-3 transition-colors
                                                     ${isLive ? 'bg-[#00ff87]/5' : idx % 2 === 0 ? 'bg-white/[0.03]' : 'bg-transparent'}
                                                     hover:bg-white/[0.06]`}
-                                            >
-                                                {/* TV channel badge — left rail */}
-                                                {(() => {
-                                                    const BADGE: Record<string, { abbr: string; color: string }> = {
-                                                        'sky sports': { abbr: 'SKY', color: '#0063cc' },
-                                                        'tnt sports': { abbr: 'TNT', color: '#ff6b00' },
-                                                        'amazon prime': { abbr: 'PRIME', color: '#00a8e0' },
-                                                        'peacock': { abbr: 'PCK', color: '#9b59b6' },
-                                                        'dazn': { abbr: 'DAZN', color: '#ff0050' },
-                                                        'optus': { abbr: 'OPTUS', color: '#ff6600' },
-                                                        'bein': { abbr: 'beIN', color: '#8b0000' },
-                                                        'viaplay': { abbr: 'VIA', color: '#3d00e0' },
-                                                        'canal': { abbr: 'C+', color: '#111' },
-                                                        'espn': { abbr: 'ESPN', color: '#cc0000' },
-                                                        'supersport': { abbr: 'SS', color: '#004b8d' },
-                                                    };
-                                                    const getBadge = (name: string) => {
-                                                        const lower = name.toLowerCase();
-                                                        for (const [key, val] of Object.entries(BADGE)) {
-                                                            if (lower.includes(key)) return val;
+                                                >
+                                                    {/* TV channel badge — left rail */}
+                                                    {(() => {
+                                                        const BADGE: Record<string, { abbr: string; color: string }> = {
+                                                            'sky sports': { abbr: 'SKY', color: '#0063cc' },
+                                                            'tnt sports': { abbr: 'TNT', color: '#ff6b00' },
+                                                            'amazon prime': { abbr: 'PRIME', color: '#00a8e0' },
+                                                            'peacock': { abbr: 'PCK', color: '#9b59b6' },
+                                                            'dazn': { abbr: 'DAZN', color: '#ff0050' },
+                                                            'optus': { abbr: 'OPTUS', color: '#ff6600' },
+                                                            'bein': { abbr: 'beIN', color: '#8b0000' },
+                                                            'viaplay': { abbr: 'VIA', color: '#3d00e0' },
+                                                            'canal': { abbr: 'C+', color: '#111' },
+                                                            'espn': { abbr: 'ESPN', color: '#cc0000' },
+                                                            'supersport': { abbr: 'SS', color: '#004b8d' },
+                                                        };
+                                                        const getBadge = (name: string) => {
+                                                            const lower = name.toLowerCase();
+                                                            for (const [key, val] of Object.entries(BADGE)) {
+                                                                if (lower.includes(key)) return val;
+                                                            }
+                                                            return { abbr: name.slice(0, 4).toUpperCase(), color: '#555' };
+                                                        };
+                                                        if (!onTv) return <div className="w-20 shrink-0" />;
+                                                        if (!fixChannels || fixChannels.length === 0) {
+                                                            return <div className="w-20 shrink-0 flex items-center justify-center"><Tv size={16} className="text-white/30" /></div>;
                                                         }
-                                                        return { abbr: name.slice(0, 4).toUpperCase(), color: '#555' };
-                                                    };
-                                                    if (!onTv) return <div className="w-10 shrink-0" />;
-                                                    if (!fixChannels || fixChannels.length === 0) {
-                                                        return <div className="w-10 shrink-0 flex items-center justify-center"><Tv size={12} className="text-white/30" /></div>;
-                                                    }
-                                                    return (
-                                                        <div className="w-10 shrink-0 flex flex-col items-center gap-0.5">
-                                                            {fixChannels.slice(0, 2).map((ch: any, i: number) => {
-                                                                const b = getBadge(ch.name);
-                                                                return (
-                                                                    <span
-                                                                        key={i}
-                                                                        title={ch.name}
-                                                                        className="text-[7px] font-black tracking-tight px-1 py-0.5 rounded"
-                                                                        style={{ background: b.color + '33', color: b.color, border: `1px solid ${b.color}55` }}
-                                                                    >
-                                                                        {b.abbr}
-                                                                    </span>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    );
-                                                })()}
+                                                        return (
+                                                            <div className="w-20 shrink-0 flex flex-col items-center justify-center gap-2">
+                                                                {fixChannels.slice(0, 2).map((ch: any, i: number) => {
+                                                                    const b = getBadge(ch.name);
+                                                                    return ch.logo ? (
+                                                                        <div key={i} className="bg-white rounded overflow-hidden p-1 flex items-center justify-center shadow-md">
+                                                                            <img
+                                                                                src={ch.logo}
+                                                                                alt={ch.name}
+                                                                                title={ch.name}
+                                                                                className="w-14 h-5 object-contain"
+                                                                                onError={(e) => {
+                                                                                    (e.target as HTMLImageElement).parentElement!.style.display = 'none';
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span
+                                                                            key={i}
+                                                                            title={ch.name}
+                                                                            className="text-[8px] font-black tracking-tight px-1.5 py-0.5 rounded"
+                                                                            style={{ background: b.color + '33', color: b.color, border: `1px solid ${b.color}55` }}
+                                                                        >
+                                                                            {b.abbr}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        );
+                                                    })()}
 
-                                                {/* Home */}
-                                                <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
-                                                    <span className="text-sm font-bold text-white truncate">{homeTeam?.name ?? '?'}</span>
-                                                    {homeTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${homeTeam.code}.png`} alt="" className="w-6 h-6 object-contain shrink-0" />}
-                                                </div>
+                                                    {/* Home */}
+                                                    <div className="flex-1 flex items-center justify-end gap-3 min-w-0 pr-2">
+                                                        <span className="text-base md:text-lg font-bold text-white truncate">{homeTeam?.name ?? '?'}</span>
+                                                        {homeTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${homeTeam.code}.png`} alt="" className="w-8 h-8 md:w-10 md:h-10 object-contain shrink-0" />}
+                                                    </div>
 
-                                                {/* Score / Time */}
-                                                <div className="flex flex-col items-center shrink-0 min-w-[90px]">
-                                                    {started ? (
-                                                        <>
-                                                            <span className={`text-base font-black tabular-nums tracking-tight ${isLive ? 'text-[#00ff87]' : 'text-white/60'}`}>
-                                                                {hScore} – {aScore}
-                                                            </span>
-                                                            {isLive && (
-                                                                <span className="flex items-center gap-1 text-[8px] font-black text-[#00ff87] uppercase tracking-widest mt-0.5">
-                                                                    <span className="w-1 h-1 rounded-full bg-[#00ff87] animate-pulse inline-block" />
-                                                                    Live
+                                                    {/* Score / Time */}
+                                                    <div className="flex flex-col items-center shrink-0 min-w-[100px] md:min-w-[120px]">
+                                                        {started ? (
+                                                            <>
+                                                                <span className={`text-xl md:text-2xl font-black tabular-nums tracking-tight ${isLive ? 'text-[#00ff87]' : 'text-white/60'}`}>
+                                                                    {hScore} – {aScore}
                                                                 </span>
-                                                            )}
-                                                            {finished && (
-                                                                <span className="text-[8px] font-bold text-white/30 uppercase tracking-wider mt-0.5">FT</span>
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <span className="text-[11px] font-black text-white/80">{time}</span>
-                                                            <span className="text-[9px] font-bold text-white/40 mt-0.5">{day}</span>
-                                                        </>
-                                                    )}
-                                                </div>
+                                                                {isLive && (
+                                                                    <span className="flex items-center gap-1 text-[10px] font-black text-[#00ff87] uppercase tracking-widest mt-1">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#00ff87] animate-pulse inline-block" />
+                                                                        Live
+                                                                    </span>
+                                                                )}
+                                                                {finished && (
+                                                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider mt-1">FT</span>
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <span className="text-sm md:text-base font-black text-white/80">{time}</span>
+                                                                <span className="text-xs font-bold text-white/40 mt-1">{day}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
 
-                                                {/* Away */}
-                                                <div className="flex-1 flex items-center justify-start gap-2 min-w-0">
-                                                    {awayTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${awayTeam.code}.png`} alt="" className="w-6 h-6 object-contain shrink-0" />}
-                                                    <span className="text-sm font-bold text-white truncate">{awayTeam?.name ?? '?'}</span>
+                                                    {/* Away */}
+                                                    <div className="flex-1 flex items-center justify-start gap-3 min-w-0 pl-2">
+                                                        {awayTeam?.code && <img src={`https://resources.premierleague.com/premierleague/badges/70/t${awayTeam.code}.png`} alt="" className="w-8 h-8 md:w-10 md:h-10 object-contain shrink-0" />}
+                                                        <span className="text-base md:text-lg font-bold text-white truncate">{awayTeam?.name ?? '?'}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            </div>
                             );
                         })()}
                     </div> {/* End of Pitch/Bench Container Column */}

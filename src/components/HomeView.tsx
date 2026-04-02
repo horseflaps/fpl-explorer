@@ -1,8 +1,79 @@
+import React from 'react';
 import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
-const HomeView = () => {
+const HomeView: React.FC = () => {
     const navigate = useNavigate();
+    const { isAuthenticated, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen } = useAuth();
+
+    const renderMainButton = () => {
+        // If connected or authenticated, the extension must be present - skip state 1
+        const hasExtension = extensionDetected || isAuthenticated || fplConnected;
+
+        // State 1: No Extension -> "Get Connected" (Points to /setup)
+        if (!hasExtension) {
+            return (
+                <button
+                    onClick={() => navigate('/setup')}
+                    className="px-8 py-4 bg-[#00ff87] text-[#37003c] font-black text-lg uppercase tracking-wider rounded-xl hover:bg-[#00ff87]/90 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
+                >
+                    Get Connected
+                </button>
+            );
+        }
+
+        // State 2: Has Extension, Not Logged In -> "Log In / Sign Up" (Opens login modal)
+        if (!isAuthenticated) {
+            return (
+                <button
+                    onClick={() => setIsLoginOpen(true)}
+                    className="px-8 py-4 bg-blue-600 text-white font-black text-lg uppercase tracking-wider rounded-xl hover:bg-blue-500 active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.4)]"
+                >
+                    Log In / Sign Up
+                </button>
+            );
+        }
+
+        // State 3: Logged In, Had Connection, Now Disconnected -> "Connect" (fires extension reconnect)
+        if (!fplConnected && fplEntryId) {
+            const handleReconnect = () => {
+                window.dispatchEvent(new CustomEvent('fpw-reconnect', {
+                    detail: { fpwToken: localStorage.getItem('token') }
+                }));
+            };
+            return (
+                <button
+                    onClick={handleReconnect}
+                    className="px-8 py-4 bg-fpl-green text-slate-950 font-black text-lg uppercase tracking-wider rounded-xl hover:bg-green-400 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
+                >
+                    Connect
+                </button>
+            );
+        }
+
+        // State 4 (formerly 3): Logged In, No Prior FPL Connection -> "Connect via FPL"
+        if (!fplConnected) {
+            return (
+                <button
+                    onClick={() => window.open('https://fantasy.premierleague.com/', '_blank')}
+                    className="px-8 py-4 bg-fpl-green text-slate-950 font-black text-lg uppercase tracking-wider rounded-xl hover:bg-green-400 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
+                >
+                    Connect via FPL
+                </button>
+            );
+        }
+
+        // State 4: Logged In & Connected -> "Get Analysis"
+        return (
+            <button
+                onClick={() => navigate('/analyse')}
+                className="px-8 py-4 bg-[#00ff87] text-[#37003c] font-black text-lg uppercase tracking-wider rounded-xl hover:bg-[#00ff87]/90 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
+            >
+                Get Analysis
+            </button>
+        );
+    };
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-8 pb-12">
@@ -17,52 +88,11 @@ const HomeView = () => {
                     Analyze your team, find hidden gems, and dominate your mini-leagues with data-driven insights.
                 </p>
                 <div className="flex justify-center gap-4 pt-4">
-                    <button
-                        onClick={() => navigate('/analyse')}
-                        className="px-8 py-4 bg-[#00ff87] text-[#37003c] font-black text-lg uppercase tracking-wider rounded-xl hover:bg-[#00ff87]/90 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
-                    >
-                        Start Analysis
-                    </button>
+                    {renderMainButton()}
                 </div>
             </div>
 
-            {/* Features Grid */}
-            <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-[#00ff87]/50 transition-colors group">
-                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <TrendingUp className="text-[#00ff87]" size={24} />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">Team Analysis</h3>
-                    <p className="text-gray-400 leading-relaxed">
-                        Input your Team ID to get an instant deep-dive into your squad's performance.
-                        Visualize exact pitch layouts, check transfer effectiveness, and view live projected points.
-                    </p>
-                </div>
-
-                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-[#02efff]/50 transition-colors group">
-                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <Shield className="text-[#02efff]" size={24} />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">AI Strategy</h3>
-                    <p className="text-gray-400 leading-relaxed">
-                        "Unleash the Wolf" to get personalized transfer recommendations.
-                        Our AI evaluates thousands of scenarios to suggest the optimal moves for your specific team.
-                    </p>
-                </div>
-
-                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-pink-500/50 transition-colors group">
-                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <Users className="text-pink-500" size={24} />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">Mini-Leagues</h3>
-                    <p className="text-gray-400 leading-relaxed">
-                        Track your rivals and see live rank updates.
-                        Save your favorite teams for quick access and never miss a beat in your competitive leagues.
-                    </p>
-                </div>
-            </div>
-
-            {/* FPL Connection Section */}
+            {/* FPL Connection Section - Moved below Hero */}
             <div className="bg-slate-900/50 border border-white/10 rounded-3xl p-8 md:p-12">
                 <div className="flex items-center gap-3 mb-2 justify-center">
                     <div className="w-2 h-2 rounded-full bg-[#00ff87] shadow-[0_0_6px_#00ff87]" />
@@ -105,36 +135,93 @@ const HomeView = () => {
                 </div>
                 <div className="mt-8 p-4 bg-slate-800/50 border border-white/5 rounded-2xl text-center">
                     <p className="text-xs text-gray-500 leading-relaxed max-w-xl mx-auto">
-                        <span className="text-white font-semibold">Your password is never touched.</span> The extension reads a short-lived session token directly from FPL's own website — the same way your browser stays logged in. It is stored securely on our server and used only to fetch your team data.
+                        <span className="text-white font-semibold">Your password is never seen, stored or touched.</span> The extension reads a short-lived session token directly from FPL's own website — the same way your browser stays logged in. It is stored securely on our server and used only to fetch your team data.
                     </p>
                 </div>
             </div>
 
-            {/* How to Use Section */}
-            <div className="bg-[#220025] border border-white/10 rounded-3xl p-8 md:p-12">
-                <h2 className="text-3xl font-black text-white uppercase italic tracking-tight mb-8 text-center">How to Win</h2>
-                <div className="grid md:grid-cols-4 gap-8">
-                    <div className="relative text-center">
-                        <div className="w-10 h-10 bg-white/10 text-white font-black flex items-center justify-center rounded-full mx-auto mb-4 border border-white/20">1</div>
-                        <h4 className="text-[#00ff87] font-bold uppercase mb-2">Connect</h4>
-                        <p className="text-sm text-gray-400">Enter your Team ID in the Analyse tab.</p>
+            {/* Features Grid */}
+            <div className="grid md:grid-cols-3 gap-6">
+                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-[#00ff87]/50 transition-colors group">
+                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <TrendingUp className="text-[#00ff87]" size={24} />
                     </div>
-                    <div className="relative text-center">
-                        <div className="w-10 h-10 bg-white/10 text-white font-black flex items-center justify-center rounded-full mx-auto mb-4 border border-white/20">2</div>
-                        <h4 className="text-[#00ff87] font-bold uppercase mb-2">Review</h4>
-                        <p className="text-sm text-gray-400">Examine specific weaknesses in your current lineup.</p>
-                    </div>
-                    <div className="relative text-center">
-                        <div className="w-10 h-10 bg-white/10 text-white font-black flex items-center justify-center rounded-full mx-auto mb-4 border border-white/20">3</div>
-                        <h4 className="text-[#02efff] font-bold uppercase mb-2">Simulate</h4>
-                        <p className="text-sm text-gray-400">Use Edit Mode to test potential transfers.</p>
-                    </div>
-                    <div className="relative text-center">
-                        <div className="w-10 h-10 bg-white/10 text-white font-black flex items-center justify-center rounded-full mx-auto mb-4 border border-white/20">4</div>
-                        <h4 className="text-pink-500 font-bold uppercase mb-2">Execute</h4>
-                        <p className="text-sm text-gray-400">Apply the AI's advice to your actual FPL team.</p>
-                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-4">Team Analysis</h3>
+                    <p className="text-gray-400 leading-relaxed">
+                        Input your Team ID to get an instant deep-dive into your squad's performance.
+                        Visualize exact pitch layouts, check transfer effectiveness, and view live projected points.
+                    </p>
                 </div>
+
+                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-[#02efff]/50 transition-colors group">
+                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <Shield className="text-[#02efff]" size={24} />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-4">AI Strategy</h3>
+                    <p className="text-gray-400 leading-relaxed">
+                        "Unleash the Wolf" to get personalized transfer recommendations.
+                        Our AI evaluates thousands of scenarios to suggest the optimal moves for your specific team.
+                    </p>
+                </div>
+
+                <div className="bg-slate-900/50 border border-white/10 p-8 rounded-2xl hover:border-pink-500/50 transition-colors group">
+                    <div className="w-12 h-12 bg-[#37003c] rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <Users className="text-pink-500" size={24} />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white mb-4">Mini-Leagues</h3>
+                    <p className="text-gray-400 leading-relaxed">
+                        Track your rivals and see live rank updates.
+                        Save your favorite teams for quick access and never miss a beat in your competitive leagues.
+                    </p>
+                </div>
+            </div>
+
+            {/* CTA Functionality Table - Replaced "How to Win" */}
+            <div className="bg-slate-900/50 border border-white/10 rounded-3xl p-8 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="border-b border-white/10 text-gray-400 text-sm uppercase tracking-wider">
+                            <th className="pb-4 pr-4">State</th>
+                            <th className="pb-4 pr-4">Button Text</th>
+                            <th className="pb-4 pr-4">Primary Action</th>
+                            <th className="pb-4">Destination / Result</th>
+                        </tr>
+                    </thead>
+                    <tbody className="text-sm text-gray-300">
+                        <tr className="border-b border-white/5">
+                            <td className="py-4 pr-4 font-bold text-white">No Extension</td>
+                            <td className="py-4 pr-4">Get Connected</td>
+                            <td className="py-4 pr-4">Navigate to Setup</td>
+                            <td className="py-4 text-[#00ff87]">→ /setup page</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-4 pr-4 font-bold text-white">Extension Found, Not Logged In</td>
+                            <td className="py-4 pr-4 font-bold text-blue-400">Log In / Sign Up</td>
+                            <td className="py-4 pr-4 text-blue-400/80">Open Login Modal</td>
+                            <td className="py-4 text-blue-300">Wolf auth modal</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-4 pr-4 font-bold text-white">Logged In, No Prior FPL Link</td>
+                            <td className="py-4 pr-4 font-bold text-fpl-green">Connect via FPL</td>
+                            <td className="py-4 pr-4 text-fpl-green/80">External Link</td>
+                            <td className="py-4 text-fpl-green/90">Opens FPL site in new tab</td>
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-4 pr-4 font-bold text-white">Logged In, Previously Linked, Disconnected</td>
+                            <td className="py-4 pr-4 font-bold text-white">Connect</td>
+                            <td className="py-4 pr-4 text-gray-400">Extension Reconnect</td>
+                            <td className="py-4 flex items-center gap-2">
+                                Fires <span className="bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono text-[#00ff87]">fpw-reconnect</span> → extension resends stored token → <span className="w-2 h-2 bg-[#00ff87] rounded-full shadow-[0_0_6px_#00ff87]"></span> neon modal fires
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="py-4 pr-4 font-bold text-white">Logged In & Connected</td>
+                            <td className="py-4 pr-4 font-bold text-[#00ff87]">Get Analysis</td>
+                            <td className="py-4 pr-4 text-[#00ff87]/80">Navigate to Analyse</td>
+                            <td className="py-4 text-[#00ff87]">→ /analyse</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
         </div>

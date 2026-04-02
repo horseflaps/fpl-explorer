@@ -1,6 +1,8 @@
 // FantasyPremierWolf Connector — FPW Site Content Script
 // Runs on the FPW app, reads the JWT and sends it to the background script
 
+document.documentElement.setAttribute('data-fpw-extension', 'installed');
+
 function extractFpwToken() {
     return localStorage.getItem('token') || null;
 }
@@ -27,6 +29,17 @@ window.addEventListener('storage', (e) => {
 // Re-send when user logs in (same tab — storage event doesn't fire for same-tab changes)
 window.addEventListener('fpw-login', () => {
     sendFpwToken();
+});
+
+// Listen for reconnect requests from the FPW web app
+window.addEventListener('fpw-reconnect', (e) => {
+    const fpwToken = e.detail?.fpwToken || extractFpwToken();
+    if (!fpwToken) return;
+    chrome.runtime.sendMessage({
+        type: 'SEND_TOKEN_TO_FPW',
+        fpwToken,
+        origin: window.location.origin.replace('5173', '3001')
+    });
 });
 
 // Listen for popup requesting the FPW token

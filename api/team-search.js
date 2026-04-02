@@ -8,7 +8,7 @@ export default async function handler(req, res) {
         return res.status(200).json([]);
     }
 
-    const dbPath = path.join(process.cwd(), 'fpl.db');
+    const dbPath = 'T:\\My Drive\\FPL\\db\\fpl.db';
     const db = new sqlite3.Database(dbPath);
 
     return new Promise((resolve, reject) => {
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
             FROM teams_fts f
             JOIN teams t ON f.rowid = t.id
             WHERE teams_fts MATCH ?
-            ORDER BY rank
+            ORDER BY f.rank
             LIMIT 20
         `;
         // FTS5 Prefix Search

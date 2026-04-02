@@ -96,7 +96,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 // Team Search (Local FPL DB)
 // We need to open the FPL db separately here
-const FPL_DB_PATH = path.resolve(__dirname, 'fpl.db');
+const FPL_DB_PATH = 'T:\\My Drive\\FPL\\db\\fpl.db';
 
 // --- Saved Teams Routes ---
 
@@ -224,7 +224,7 @@ app.get('/api/team-search', (req, res) => {
       FROM teams_fts f
       JOIN teams t ON f.rowid = t.id
       WHERE teams_fts MATCH ?
-      ORDER BY rank
+      ORDER BY f.rank
       LIMIT 20
     `;
 
@@ -688,14 +688,19 @@ app.use('/api/fpl-auth', async (req, res) => {
 // --- TV Broadcast Data ---
 // Maps channel name substrings (lowercase) to logo URLs we control
 const CHANNEL_LOGO_MAP = {
-    'sky sports':   'https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Sky_Sports_logo_2020.svg/120px-Sky_Sports_logo_2020.svg.png',
-    'tnt sports':   'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/TNT_Sports_logo.svg/120px-TNT_Sports_logo.svg.png',
-    'amazon prime': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png',
+    'sky sports':   'https://resources.premierleague.com/premierleague25/broadcasters/large/sky.png',
+    'tnt sports':   'https://resources.premierleague.com/premierleague25/broadcasters/large/tnt.png',
+    'amazon prime': 'https://resources.premierleague.com/premierleague25/broadcasters/large/amazon.png',
     'peacock':      'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/NBCUniversal_Peacock_Logo.svg/120px-NBCUniversal_Peacock_Logo.svg.png',
     'nbc':          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/NBC_Sports_logo.svg/120px-NBC_Sports_logo.svg.png',
-    'dazn':         'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/DAZN_brand_logo.svg/120px-DAZN_brand_logo.svg.png',
-    'optus':        'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Optus_Sport_logo.png/120px-Optus_Sport_logo.png',
-    'canal':        'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Canal%2B_logo.svg/120px-Canal%2B_logo.svg.png',
+    'usa network':  '/tv/usa.svg',
+    'telemundo':    '/tv/telemundo.svg',
+    'universo':     '/tv/universo.svg',
+    'dazn':         '/tv/dazn.svg',
+    'optus':        '/tv/optus.svg',
+    'fubo':         '/tv/fubo.svg',
+    'sky sport':    'https://upload.wikimedia.org/wikipedia/en/thumb/d/de/Sky_Sport_-_2020_logo.svg/250px-Sky_Sport_-_2020_logo.svg.png',
+    'canal':        '/tv/canal.svg',
     'bein':         'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/BeIN_Sports_logo.svg/120px-BeIN_Sports_logo.svg.png',
     'viaplay':      'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Viaplay_logo.svg/120px-Viaplay_logo.svg.png',
     'movistar':     'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Movistar%2B_logo.svg/120px-Movistar%2B_logo.svg.png',
@@ -825,8 +830,20 @@ app.get('/api/fixtures/tv', async (req, res) => {
                     if (!fixture.kickoff_time) { result[fixture.id] = []; continue; }
                     const ko = new Date(fixture.kickoff_time);
                     const koHHMM = `${String(ko.getUTCHours()).padStart(2,'0')}:${String(ko.getUTCMinutes()).padStart(2,'0')}`;
-                    // Match by kickoff time (UTC)
-                    const matched = matchRows.find(r => r.time && r.time.includes(koHHMM));
+                    // Match by kickoff time (UTC) AND team names for better accuracy
+                    const matched = matchRows.find(r => {
+                        const timeMatch = r.time && r.time.includes(koHHMM);
+                        if (!timeMatch) return false;
+                        
+                        const home = (fixture.team_h_name || homeTeam?.name || '').toLowerCase();
+                        const away = (fixture.team_a_name || awayTeam?.name || '').toLowerCase();
+                        const rHome = r.home.toLowerCase();
+                        const rAway = r.away.toLowerCase();
+                        
+                        // Fuzzy match team names
+                        return rHome.includes(home.split(' ')[0]) || rAway.includes(away.split(' ')[0]);
+                    });
+
                     if (!matched) { result[fixture.id] = []; continue; }
                     const channels = matched.channels
                         .filter(c => c.name || c.src)
@@ -835,11 +852,12 @@ app.get('/api/fixtures/tv', async (req, res) => {
                     console.log(`[TV] Fixture ${fixture.id} (${koHHMM}): ${channels.map(c => c.name).join(', ') || 'no channels'}`);
                 }
             } else {
-                // Heuristic fallback for UK — known Sky/TNT slot patterns
-                console.log('[TV] No channel data from livesoccertv, using UK kickoff heuristic');
-                const SKY = { name: 'Sky Sports', logo: CHANNEL_LOGO_MAP['sky sports'] };
-                const TNT = { name: 'TNT Sports', logo: CHANNEL_LOGO_MAP['tnt sports'] };
-                for (const fixture of fixtures) {
+                // Heuristic fallbacks when scraper doesn't find data
+                if (country === 'GB' || country === 'IE') {
+                    console.log('[TV] No channel data from livesoccertv, using UK kickoff heuristic');
+                    const SKY = { name: 'Sky Sports', logo: CHANNEL_LOGO_MAP['sky sports'] };
+                    const TNT = { name: 'TNT Sports', logo: CHANNEL_LOGO_MAP['tnt sports'] };
+                    for (const fixture of fixtures) {
                     if (!fixture.kickoff_time) { result[fixture.id] = []; continue; }
                     const ko = new Date(fixture.kickoff_time);
                     const utcDay = ko.getUTCDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
@@ -848,12 +866,79 @@ app.get('/api/fixtures/tv', async (req, res) => {
                     const isSat = utcDay === 6, isSun = utcDay === 0, isMon = utcDay === 1, isFri = utcDay === 5;
                     const isBlackout = isSat && utcM === 0 && (utcH === 14 || utcH === 15);
                     if (isBlackout) { result[fixture.id] = []; continue; }
-                    // Sat 12:30 (11:30 UTC in BST) or 12:30 UTC in GMT → always Sky
-                    if (isSat && utcM === 30 && (utcH === 11 || utcH === 12)) { result[fixture.id] = [SKY]; continue; }
-                    // Sun 16:30 (15:30 UTC in BST) → usually Sky Super Sunday
-                    if (isSun && utcM === 30 && (utcH === 15 || utcH === 16)) { result[fixture.id] = [SKY]; continue; }
-                    // All other televised slots — could be Sky or TNT
-                    result[fixture.id] = [SKY, TNT];
+
+                    // UK Broadcaster Heuristics (Typical Slots)
+                    // Sat 12:30 (11:30 UTC in BST) -> TNT Sports
+                    if (isSat && utcM === 30 && (utcH === 11 || utcH === 12)) { result[fixture.id] = [TNT]; continue; }
+                    // Sat 17:30 (16:30 UTC in BST) -> Sky Sports
+                    if (isSat && utcM === 30 && (utcH === 16 || utcH === 17)) { result[fixture.id] = [SKY]; continue; }
+                    // Sun 14:00 (13:00 UTC in BST) or 16:30 (15:30 UTC in BST) -> Sky Sports
+                    if (isSun && ((utcM === 0 && (utcH === 13 || utcH === 14)) || (utcM === 30 && (utcH === 15 || utcH === 16)))) { 
+                        result[fixture.id] = [SKY]; continue; 
+                    }
+                    // Mon 20:00 (19:00 UTC in BST) or Fri 20:00 (19:00 UTC in BST) -> Sky Sports
+                    if ((isMon || isFri) && utcM === 0 && (utcH === 19 || utcH === 20)) { result[fixture.id] = [SKY]; continue; }
+
+                    // If we can't be sure, default to empty rather than showing both incorrectly
+                    result[fixture.id] = [];
+                    }
+                } else if (country === 'US') {
+                    console.log('[TV] No channel data from livesoccertv, using US kickoff heuristic');
+                    const PEACOCK = { name: 'Peacock', logo: CHANNEL_LOGO_MAP['peacock'] };
+                    const NBC = { name: 'NBC Sports', logo: CHANNEL_LOGO_MAP['nbc'] };
+                    const USA = { name: 'USA Network', logo: CHANNEL_LOGO_MAP['usa network'] };
+                    const TELE = { name: 'Telemundo', logo: CHANNEL_LOGO_MAP['telemundo'] };
+                    const UNIV = { name: 'Universo', logo: CHANNEL_LOGO_MAP['universo'] };
+                    
+                    for (const fixture of fixtures) {
+                        if (!fixture.kickoff_time) { result[fixture.id] = []; continue; }
+                        const ko = new Date(fixture.kickoff_time);
+                        const utcDay = ko.getUTCDay();
+                        const utcH = ko.getUTCHours();
+                        const utcM = ko.getUTCMinutes();
+                        
+                        if (utcDay === 5 && utcM === 0 && (utcH === 19 || utcH === 20)) {
+                            result[fixture.id] = [USA, UNIV]; // Fri 20:00
+                        } else if (utcDay === 6 && utcM === 30 && (utcH === 11 || utcH === 12)) {
+                            result[fixture.id] = [USA, UNIV]; // Sat 12:30
+                        } else if (utcDay === 6 && utcM === 0 && (utcH === 14 || utcH === 15)) {
+                            result[fixture.id] = [PEACOCK]; // Sat 15:00
+                        } else if (utcDay === 6 && utcM === 30 && (utcH === 16 || utcH === 17)) {
+                            result[fixture.id] = [NBC, TELE]; // Sat 17:30
+                        } else if (utcDay === 0 && utcM === 0 && (utcH === 13 || utcH === 14)) {
+                            result[fixture.id] = [USA, TELE]; // Sun 14:00 (often one USA, rest Peacock, assuming USA as primary)
+                        } else if (utcDay === 0 && utcM === 30 && (utcH === 15 || utcH === 16)) {
+                            result[fixture.id] = [USA, TELE]; // Sun 16:30
+                        } else if (utcDay === 1 && utcM === 0 && (utcH === 19 || utcH === 20)) {
+                            result[fixture.id] = [USA, UNIV]; // Mon 20:00
+                        } else {
+                            result[fixture.id] = [PEACOCK]; // Default
+                        }
+                    }
+                } else if (country === 'AU') {
+                    console.log('[TV] No channel data from livesoccertv, using AU heuristic');
+                    const OPTUS = { name: 'Optus Sport', logo: CHANNEL_LOGO_MAP['optus'] };
+                    for (const fixture of fixtures) result[fixture.id] = [OPTUS];
+                } else if (country === 'CA') {
+                    console.log('[TV] No channel data from livesoccertv, using CA heuristic');
+                    const FUBO = { name: 'fuboTV', logo: CHANNEL_LOGO_MAP['fubo'] };
+                    for (const fixture of fixtures) result[fixture.id] = [FUBO];
+                } else if (country === 'DE' || country === 'IT') {
+                    console.log(`[TV] No channel data from livesoccertv, using ${country} heuristic`);
+                    const SKY = { name: country === 'DE' ? 'Sky Sport' : 'Sky Sport Uno', logo: CHANNEL_LOGO_MAP['sky sport'] };
+                    for (const fixture of fixtures) result[fixture.id] = [SKY];
+                } else if (country === 'FR') {
+                    console.log('[TV] No channel data from livesoccertv, using FR heuristic');
+                    const CANAL = { name: 'Canal+', logo: CHANNEL_LOGO_MAP['canal'] };
+                    for (const fixture of fixtures) result[fixture.id] = [CANAL];
+                } else if (country === 'ES') {
+                    console.log('[TV] No channel data from livesoccertv, using ES heuristic');
+                    const DAZN = { name: 'DAZN', logo: CHANNEL_LOGO_MAP['dazn'] };
+                    for (const fixture of fixtures) result[fixture.id] = [DAZN];
+                } else {
+                    // For other countries where scraper fails, render nothing rather than wrong channels
+                    console.log(`[TV] Scraper failed and country is ${country}. No fallback available.`);
+                    for (const fixture of fixtures) result[fixture.id] = [];
                 }
             }
         } finally {
@@ -911,6 +996,13 @@ app.use('/api', async (req, res) => {
         });
 
         if (!response.ok) {
+            // Special handling for picks: if FPL returns 404 (common for future/limbo GWs),
+            // return 200 and null to avoid messy browser console red error logs.
+            if (response.status === 404 && fplPath.includes('/picks/')) {
+                console.log(`[Proxy] Silencing 404 for picks: ${finalUrl}`);
+                return res.status(200).json(null);
+            }
+
             return res.status(response.status).json({
                 error: `FPL API Error: ${response.status}`,
                 details: response.statusText

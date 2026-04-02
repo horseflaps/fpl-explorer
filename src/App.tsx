@@ -11,6 +11,7 @@ import StandingsView from './components/StandingsView';
 import PitchView from './components/PitchView';
 import MyTeamsView from './components/MyTeamsView';
 import PricingView from './components/PricingView';
+import SetupView from './components/SetupView';
 import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
@@ -81,6 +82,7 @@ function App() {
             <Route path="/analyse" element={<PitchView data={data} />} />
             <Route path="/my-teams" element={<MyTeamsView />} />
             <Route path="/pricing" element={<PricingView />} />
+            <Route path="/setup" element={<SetupView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
