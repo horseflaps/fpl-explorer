@@ -12,6 +12,10 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
         console.error('[DB] Connection error:', err.message);
     } else {
         console.log('[DB] Connected to the users database.');
+        // WAL mode allows concurrent reads alongside writes
+        db.run('PRAGMA journal_mode=WAL');
+        // Wait up to 5s instead of immediately returning SQLITE_BUSY
+        db.run('PRAGMA busy_timeout=5000');
         initDb();
     }
 });

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -6,6 +7,10 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('./server/db.cjs');
 const sqlite3 = require('sqlite3').verbose();
+const { Resend } = require('resend');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+console.log('[Resend] API key loaded:', process.env.RESEND_API_KEY ? 'YES' : 'MISSING');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,6 +56,87 @@ app.post('/api/auth/signup', (req, res) => {
 
         const token = jwt.sign({ id: this.lastID, displayname: display_name, email }, JWT_SECRET, { expiresIn: '7d' });
         res.status(201).json({ token, user: { id: this.lastID, displayname: display_name, email } });
+
+        // Send welcome email (non-blocking)
+        resend.emails.send({
+            from: 'The Wolf <thewolf@fantasypremierwolf.com>',
+            to: email,
+            subject: 'Welcome to FantasyPremierWolf',
+            html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:520px;background:#1e293b;border-radius:16px;border:1px solid #334155;overflow:hidden;">
+
+        <!-- Top bar -->
+        <tr><td style="height:4px;background:linear-gradient(90deg,#00ff87,#02efff);"></td></tr>
+
+        <!-- Header -->
+        <tr><td style="padding:36px 40px 24px;">
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#00ff87;letter-spacing:0.2em;text-transform:uppercase;">FantasyPremierWolf</p>
+          <h1 style="margin:0;font-size:28px;font-weight:900;color:#ffffff;line-height:1.2;">Welcome, ${display_name}.</h1>
+          <p style="margin:12px 0 0;font-size:15px;color:#94a3b8;line-height:1.6;">Your Wolf account is live. You're now one step away from AI-powered FPL analysis that actually wins gameweeks.</p>
+        </td></tr>
+
+        <!-- Divider -->
+        <tr><td style="padding:0 40px;"><div style="height:1px;background:#334155;"></div></td></tr>
+
+        <!-- Steps -->
+        <tr><td style="padding:28px 40px;">
+          <p style="margin:0 0 16px;font-size:12px;font-weight:700;color:#64748b;letter-spacing:0.15em;text-transform:uppercase;">Get started in 2 steps</p>
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td style="width:32px;vertical-align:top;padding-top:2px;">
+                <div style="width:24px;height:24px;background:#00ff87;border-radius:6px;text-align:center;line-height:24px;font-size:12px;font-weight:900;color:#0f172a;">1</div>
+              </td>
+              <td style="padding:0 0 16px 12px;">
+                <p style="margin:0;font-size:14px;font-weight:700;color:#ffffff;">Install the Chrome extension</p>
+                <p style="margin:4px 0 0;font-size:13px;color:#94a3b8;">Links your FPL account so the Wolf can read your squad automatically.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="width:32px;vertical-align:top;padding-top:2px;">
+                <div style="width:24px;height:24px;background:#00ff87;border-radius:6px;text-align:center;line-height:24px;font-size:12px;font-weight:900;color:#0f172a;">2</div>
+              </td>
+              <td style="padding:0 0 0 12px;">
+                <p style="margin:0;font-size:14px;font-weight:700;color:#ffffff;">Hit "Unleash the Wolf"</p>
+                <p style="margin:4px 0 0;font-size:13px;color:#94a3b8;">Get a full AI breakdown of your squad, transfers, and captaincy pick.</p>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- CTA -->
+        <tr><td style="padding:0 40px 36px;">
+          <a href="https://fantasypremierwolf.com/setup" style="display:block;text-align:center;background:#00ff87;color:#0f172a;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;text-decoration:none;padding:14px 24px;border-radius:10px;">
+            Get Connected
+          </a>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="padding:20px 40px;border-top:1px solid #1e293b;background:#0f172a;border-radius:0 0 16px 16px;">
+          <p style="margin:0;font-size:12px;color:#475569;text-align:center;">You're receiving this because you signed up at fantasypremierwolf.com.<br>© ${new Date().getFullYear()} FantasyPremierWolf</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+        }).then(result => console.log('[Resend] Welcome email sent:', JSON.stringify(result)))
+          .catch(err => console.error('[Resend] Welcome email failed:', err.message, err));
+    });
+});
+
+app.post('/api/auth/check-email', (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    db.get('SELECT id FROM users WHERE email = ?', [email.trim()], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ taken: !!row });
     });
 });
 
