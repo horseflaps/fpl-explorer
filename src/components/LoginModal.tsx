@@ -166,7 +166,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
 
                         <p className="mt-5 text-center text-xs text-gray-500">
                             No account?{' '}
-                            <button onClick={toggleMode} className="text-fpl-green hover:underline font-semibold">
+                            <button onClick={() => toggleMode()} className="text-fpl-green hover:underline font-semibold">
                                 Create one free
                             </button>
                         </p>
@@ -292,7 +292,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
 
                     <p className="mt-5 text-center text-xs text-gray-500">
                         Already have an account?{' '}
-                        <button onClick={toggleMode} className="text-[#e90052] hover:underline font-semibold">
+                        <button onClick={() => toggleMode()} className="text-[#e90052] hover:underline font-semibold">
                             Sign in
                         </button>
                     </p>
