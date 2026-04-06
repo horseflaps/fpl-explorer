@@ -72,40 +72,6 @@ const PricingView: React.FC = () => {
     return (
         <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in zoom-in duration-500 py-8">
 
-            {/* Analysis Credits */}
-            <div>
-                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Analyse Team</h2>
-                <p className="text-gray-400 text-sm mb-6">Buy analysis credits in bulk and save. Credits never expire.</p>
-
-                <div className="bg-slate-900/50 border border-slate-700 rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                        <thead className="bg-white/5">
-                            <tr>
-                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Credits</th>
-                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Total Price</th>
-                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Per Analysis</th>
-                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Saving</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {analysisTiers.map((tier) => (
-                                <tr key={tier.qty} className="hover:bg-white/5 transition-colors">
-                                    <td className="px-5 py-3 font-bold text-white">{tier.qty}</td>
-                                    <td className="px-5 py-3 text-white">{tier.total}</td>
-                                    <td className="px-5 py-3 text-gray-300">{tier.perUnit}</td>
-                                    <td className="px-5 py-3">
-                                        {tier.saving
-                                            ? <span className="text-[#00ff87] font-semibold">{tier.saving}</span>
-                                            : <span className="text-gray-600">—</span>
-                                        }
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
             {/* Membership Tiers */}
             <div>
                 <h2 className="text-3xl font-black text-white tracking-tight mb-1">Membership</h2>
@@ -149,6 +115,40 @@ const PricingView: React.FC = () => {
                             </button>
                         </div>
                     ))}
+                </div>
+            </div>
+
+            {/* Analysis Credits */}
+            <div>
+                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Analyse Team</h2>
+                <p className="text-gray-400 text-sm mb-6">Buy analysis credits in bulk and save. Credits never expire.</p>
+
+                <div className="bg-slate-900/50 border border-slate-700 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead className="bg-white/5">
+                            <tr>
+                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Credits</th>
+                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Total Price</th>
+                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Per Analysis</th>
+                                <th className="px-5 py-3 text-left text-xs font-black text-[#00ff87] uppercase tracking-wider">Saving</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {analysisTiers.map((tier) => (
+                                <tr key={tier.qty} className="hover:bg-white/5 transition-colors">
+                                    <td className="px-5 py-3 font-bold text-white">{tier.qty}</td>
+                                    <td className="px-5 py-3 text-white">{tier.total}</td>
+                                    <td className="px-5 py-3 text-gray-300">{tier.perUnit}</td>
+                                    <td className="px-5 py-3">
+                                        {tier.saving
+                                            ? <span className="text-[#00ff87] font-semibold">{tier.saving}</span>
+                                            : <span className="text-gray-600">—</span>
+                                        }
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

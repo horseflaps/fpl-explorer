@@ -43,9 +43,9 @@ app.post('/api/auth/signup', (req, res) => {
     }
 
     const hash = bcrypt.hashSync(password, 10);
+    const emailToken = require('crypto').randomBytes(32).toString('hex');
 
-    // Using 'displayname' column
-    db.run('INSERT INTO users (displayname, email, password_hash) VALUES (?, ?, ?)', [display_name, email, hash], function (err) {
+    db.run('INSERT INTO users (displayname, email, password_hash, is_verified, email_token) VALUES (?, ?, ?, 0, ?)', [display_name, email, hash, emailToken], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE constraint failed')) {
                 if (err.message.includes('users.email')) return res.status(409).json({ error: 'Email already registered' });
@@ -54,8 +54,8 @@ app.post('/api/auth/signup', (req, res) => {
             return res.status(500).json({ error: err.message });
         }
 
-        const token = jwt.sign({ id: this.lastID, displayname: display_name, email }, JWT_SECRET, { expiresIn: '7d' });
-        res.status(201).json({ token, user: { id: this.lastID, displayname: display_name, email } });
+        const token = jwt.sign({ id: this.lastID, displayname: display_name, email, is_verified: false, membership_tier: 1 }, JWT_SECRET, { expiresIn: '7d' });
+        res.status(201).json({ token, user: { id: this.lastID, displayname: display_name, email, is_verified: false, membership_tier: 1 } });
 
         // Send welcome email (non-blocking)
         resend.emails.send({
@@ -111,9 +111,10 @@ app.post('/api/auth/signup', (req, res) => {
 
         <!-- CTA -->
         <tr><td style="padding:0 40px 36px;">
-          <a href="https://fantasypremierwolf.com/setup" style="display:block;text-align:center;background:#00ff87;color:#0f172a;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;text-decoration:none;padding:14px 24px;border-radius:10px;">
-            Get Connected
+          <a href="${process.env.APP_URL || 'https://fantasypremierwolf.com'}/api/auth/verify/${emailToken}" style="display:block;text-align:center;background:#00ff87;color:#0f172a;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;text-decoration:none;padding:14px 24px;border-radius:10px;">
+            Activate My Account
           </a>
+          <p style="margin:12px 0 0;font-size:11px;color:#475569;text-align:center;">Button not working? Copy and paste this link into your browser:<br><span style="color:#64748b;word-break:break-all;">${process.env.APP_URL || 'https://fantasypremierwolf.com'}/api/auth/verify/${emailToken}</span></p>
         </td></tr>
 
         <!-- Footer -->
@@ -128,6 +129,29 @@ app.post('/api/auth/signup', (req, res) => {
 </html>`,
         }).then(result => console.log('[Resend] Welcome email sent:', JSON.stringify(result)))
           .catch(err => console.error('[Resend] Welcome email failed:', err.message, err));
+    });
+});
+
+// Redirect to frontend — actual activation requires the user to be logged in (POST below)
+app.get('/api/auth/verify/:token', (req, res) => {
+    const { token } = req.params;
+    res.redirect(`${process.env.APP_URL || 'https://fantasypremierwolf.com'}/?activate=${token}`);
+});
+
+// Protected activation — requires valid JWT so only the logged-in user can activate their own account
+app.post('/api/auth/activate', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Activation token required' });
+
+    db.get('SELECT * FROM users WHERE email_token = ? AND id = ?', [token, decoded.id], (err, user) => {
+        if (err || !user) return res.status(400).json({ error: 'Invalid or expired activation link' });
+        db.run('UPDATE users SET is_verified = 1, email_token = NULL WHERE id = ?', [user.id], (err2) => {
+            if (err2) return res.status(500).json({ error: 'Activation failed' });
+            res.json({ ok: true });
+        });
     });
 });
 
@@ -152,8 +176,8 @@ app.post('/api/auth/login', (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ id: user.id, displayname: user.displayname, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email } });
+        const token = jwt.sign({ id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1 }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1 } });
     });
 });
 
@@ -164,7 +188,19 @@ app.get('/api/auth/me', (req, res) => {
     const token = authHeader.split(' ')[1];
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
-        res.json({ user: decoded }); // Echo back user info from token
+        // Fetch fresh is_verified from DB so it reflects after email verification
+        db.get('SELECT is_verified, membership_tier FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
+            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1 } });
+        });
+    });
+});
+
+app.post('/api/fpl/disconnect', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    delete fplValidationCache[decoded.id];
+    db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id], () => {
+        res.json({ ok: true });
     });
 });
 
@@ -429,6 +465,17 @@ app.post('/api/fpl/connect', (req, res) => {
     });
 });
 
+app.get('/api/fpl/entry/:entryId', async (req, res) => {
+    try {
+        const r = await fetch(`https://fantasy.premierleague.com/api/entry/${req.params.entryId}/`);
+        if (!r.ok) return res.status(r.status).json({ error: 'FPL API error' });
+        const d = await r.json();
+        res.json({ name: d.name, manager: `${d.player_first_name || ''} ${d.player_last_name || ''}`.trim() });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch entry' });
+    }
+});
+
 app.get('/api/fpl/status', (req, res) => {
     const decoded = requireAuth(req, res);
     if (!decoded) return;
@@ -544,7 +591,13 @@ async function getValidFplToken(userId, row) {
 
     if (isExpired && row.fpl_refresh_token) {
         console.log(`[FPL] Access token expired for user ${userId}, refreshing...`);
-        return await refreshFplToken(userId, row.fpl_refresh_token);
+        try {
+            return await refreshFplToken(userId, row.fpl_refresh_token);
+        } catch (err) {
+            console.warn(`[FPL] Token refresh failed for user ${userId} — clearing session. User must reconnect.`);
+            db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL WHERE id = ?', [userId]);
+            return null;
+        }
     }
 
     return row.fpl_session;

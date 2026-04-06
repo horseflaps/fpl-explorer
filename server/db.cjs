@@ -90,6 +90,15 @@ function initDb() {
         db.run("ALTER TABLE users ADD COLUMN fpl_refresh_token TEXT", () => {});
         db.run("ALTER TABLE users ADD COLUMN fpl_expires_at INTEGER", () => {});
 
+        // Migration: Email verification
+        db.run("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0", () => {});
+        db.run("ALTER TABLE users ADD COLUMN email_token TEXT", () => {});
+
+        // Migration: Membership tier (1=Scout, 2=Co-Pilot, 3=Autopilot)
+        db.run("ALTER TABLE users ADD COLUMN membership_tier INTEGER DEFAULT 1", () => {});
+        // Existing users are considered verified
+        db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
+
         // TV Broadcast Cache Table — stores full event result per event+country
         // Drop old per-fixture schema if it exists, then recreate
         db.run(`DROP TABLE IF EXISTS tv_cache`, () => {

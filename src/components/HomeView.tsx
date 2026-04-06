@@ -1,11 +1,37 @@
-import React from 'react';
-import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink, CheckCircle2, PartyPopper } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const HomeView: React.FC = () => {
     const navigate = useNavigate();
-    const { isAuthenticated, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen } = useAuth();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const verified = searchParams.get('verified');
+    const activateToken = searchParams.get('activate');
+    const [activateStatus, setActivateStatus] = useState<'idle' | 'success' | 'error' | 'needs-login'>('idle');
+    const { isAuthenticated, token, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen } = useAuth();
+
+    useEffect(() => {
+        if (!activateToken) return;
+
+        if (!isAuthenticated) {
+            setActivateStatus('needs-login');
+            setIsLoginOpen(true);
+            return;
+        }
+
+        fetch('/api/auth/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ token: activateToken }),
+        })
+            .then(r => r.json())
+            .then(d => {
+                setActivateStatus(d.ok ? 'success' : 'error');
+                setSearchParams({});
+            })
+            .catch(() => setActivateStatus('error'));
+    }, [activateToken, isAuthenticated]);
 
     const renderMainButton = () => {
         // If connected or authenticated, the extension must be present - skip state 1
@@ -76,7 +102,42 @@ const HomeView: React.FC = () => {
     };
 
     return (
+        <>
+        {/* Account activated modal */}
+        {activateStatus === 'success' && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
+                <div className="bg-slate-900 border border-fpl-green/40 rounded-3xl p-10 max-w-sm w-full text-center space-y-5 shadow-[0_0_50px_rgba(0,255,135,0.12)] animate-in zoom-in-95 duration-300">
+                    <div className="h-1 bg-gradient-to-r from-fpl-green to-[#02efff] rounded-full" />
+                    <div className="w-16 h-16 bg-fpl-green/10 border border-fpl-green/30 rounded-2xl flex items-center justify-center mx-auto">
+                        <PartyPopper className="text-fpl-green w-8 h-8" />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-black text-white">You're activated!</h2>
+                        <p className="text-gray-400 text-sm mt-2 leading-relaxed">Your account is now fully active. The Wolf is ready to analyse your squad.</p>
+                    </div>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="w-full py-3 bg-fpl-green text-slate-900 font-black text-sm uppercase tracking-widest rounded-xl hover:bg-fpl-green/90 transition-all shadow-[0_0_20px_rgba(0,255,135,0.25)]"
+                    >
+                        Let's Go
+                    </button>
+                </div>
+            </div>
+        )}
+
         <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pt-8 pb-12">
+
+            {/* Activation banners */}
+            {activateStatus === 'needs-login' && (
+                <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-6 py-4">
+                    <p className="text-amber-400 font-semibold text-sm">Please sign in to activate your account.</p>
+                </div>
+            )}
+            {activateStatus === 'error' && (
+                <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-2xl px-6 py-4">
+                    <p className="text-red-400 font-semibold text-sm">This activation link is invalid or has already been used.</p>
+                </div>
+            )}
 
             {/* Hero Section */}
             <div className="text-center space-y-6">
@@ -225,6 +286,7 @@ const HomeView: React.FC = () => {
             </div>
 
         </div>
+        </>
     );
 };
 

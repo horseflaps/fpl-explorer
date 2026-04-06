@@ -19,7 +19,8 @@
       "Bash(find /y/Projects/FPL/api -type f -name *.ts -o -name *.js)",
       "Bash(find /y/Projects/FPL/server -type f -name *.ts -o -name *.js)",
       "Bash(node -e \"const sqlite3=require\\(''sqlite3''\\).verbose\\(\\);const db=new sqlite3.Database\\(''./users.db''\\);db.run\\(''DELETE FROM tv_cache'',\\(\\)=>{console.log\\(''cleared''\\);db.close\\(\\);}\\)\")",
-      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(find /c/Users/mikel/projects/fpl-explorer -name *.py -o -name *.cjs -o -name *.js -o -name *.ts)"
     ]
   }
 }

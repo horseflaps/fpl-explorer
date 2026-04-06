@@ -14,6 +14,8 @@ import PricingView from './components/PricingView';
 import SetupView from './components/SetupView';
 import HowItWorksView from './components/HowItWorksView';
 import FAQView from './components/FAQView';
+import VerifiedRoute from './components/VerifiedRoute';
+import MyAccountView from './components/MyAccountView';
 import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
@@ -81,10 +83,11 @@ function App() {
             <Route path="/fixtures" element={<FixturesView data={data} />} />
             <Route path="/gameweek" element={<GameweekLiveView data={data} />} />
             <Route path="/standings" element={<StandingsView data={data} />} />
-            <Route path="/analyse" element={<PitchView data={data} />} />
-            <Route path="/my-teams" element={<MyTeamsView />} />
+            <Route path="/analyse" element={<VerifiedRoute><PitchView data={data} /></VerifiedRoute>} />
+            <Route path="/my-teams" element={<VerifiedRoute><MyTeamsView /></VerifiedRoute>} />
             <Route path="/pricing" element={<PricingView />} />
             <Route path="/setup" element={<SetupView />} />
+            <Route path="/my-account" element={<MyAccountView />} />
             <Route path="/how-it-works" element={<HowItWorksView />} />
             <Route path="/faq" element={<FAQView />} />
             <Route path="*" element={<Navigate to="/" replace />} />

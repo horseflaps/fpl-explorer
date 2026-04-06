@@ -45,7 +45,7 @@ const Step: React.FC<{ number: number; title: string; children: React.ReactNode;
 
 const HowItWorksView: React.FC = () => {
     return (
-        <div className="min-h-screen bg-slate-950 pt-16 pb-16 px-4 relative overflow-hidden">
+        <div className="min-h-screen bg-slate-950 pt-4 pb-16 px-4 relative overflow-hidden">
             {/* Background glows */}
             <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-fpl-green/8 rounded-full blur-[140px] pointer-events-none" />
             <div className="absolute bottom-1/3 right-1/4 w-[400px] h-[400px] bg-blue-500/8 rounded-full blur-[140px] pointer-events-none" />

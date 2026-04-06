@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import { useAuth } from '../context/AuthContext';
@@ -36,6 +36,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/fixtures', label: 'Fixtures', icon: Calendar },
         { path: '/gameweek', label: 'Gameweek', icon: Activity },
         { path: '/standings', label: 'Standings', icon: Trophy },
+        { path: '/my-account', label: 'My Account', icon: CircleUserRound },
         { path: '/setup', label: 'Setup', icon: Workflow },
         { path: '/how-it-works', label: 'How It Works', icon: BookOpen },
         { path: '/faq', label: 'FAQ', icon: HelpCircle },
@@ -132,7 +133,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                     <nav className="flex-1 p-4 space-y-2">
                         {navItems.map((item) => (
                             <React.Fragment key={item.path}>
-                                {item.label === 'Players' && (
+                                {(item.label === 'Players' || item.label === 'My Account') && (
                                     <div className="mx-4 my-2 border-t border-slate-700/50" />
                                 )}
                                 <NavLink
@@ -163,9 +164,9 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                                     : 'bg-slate-800/50 border-slate-700/50'
                                 }`}>
                                 <div className="flex items-center gap-3">
-                                    <div className="bg-blue-600/20 p-2 rounded-full text-blue-400">
+                                    <NavLink to="/my-account" className="bg-blue-600/20 hover:bg-blue-600/40 p-2 rounded-full text-blue-400 transition-colors">
                                         <UserIcon size={16} />
-                                    </div>
+                                    </NavLink>
                                     <div>
                                         <div className="text-xs text-gray-500 uppercase font-bold">Logged in as</div>
                                         <div className="text-sm font-bold text-white max-w-[120px] truncate" title={user.displayname}>{user.displayname}</div>

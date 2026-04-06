@@ -79,7 +79,7 @@ const FAQItem: React.FC<{ item: typeof faqs[0]; index: number }> = ({ item, inde
 
 const FAQView: React.FC = () => {
     return (
-        <div className="min-h-screen bg-slate-950 pt-16 pb-16 px-4 relative overflow-hidden">
+        <div className="min-h-screen bg-slate-950 pt-4 pb-16 px-4 relative overflow-hidden">
             {/* Background glows */}
             <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-fpl-green/8 rounded-full blur-[140px] pointer-events-none" />
             <div className="absolute bottom-1/3 left-1/4 w-[400px] h-[400px] bg-[#e90052]/6 rounded-full blur-[140px] pointer-events-none" />

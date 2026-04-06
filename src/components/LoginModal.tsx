@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, LogIn, UserPlus, ChevronRight, ChevronLeft } from 'lucide-react';
+import { X, LogIn, UserPlus, ChevronRight, ChevronLeft, Mail } from 'lucide-react';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -16,6 +16,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     const [displayName, setDisplayName] = useState('');
     const [error, setError] = useState('');
     const [emailTaken, setEmailTaken] = useState(false);
+    const [awaitingVerification, setAwaitingVerification] = useState(false);
     const { login } = useAuth();
 
     React.useEffect(() => {
@@ -28,6 +29,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
         setPassword('');
         setDisplayName('');
         setEmailTaken(false);
+        setAwaitingVerification(false);
         setStep(1);
     };
 
@@ -82,7 +84,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.error || 'Signup failed');
                     login(data.token, data.user);
-                    onClose();
+                    setAwaitingVerification(true);
                 } catch (err: any) {
                     setError(err.message);
                     if (err.message.includes('already registered')) setStep(1);
@@ -170,6 +172,34 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                                 Create one free
                             </button>
                         </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /* ── AWAITING VERIFICATION ── */
+    if (awaitingVerification) {
+        return (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-[#160020] border border-[#e90052]/30 rounded-2xl w-full max-w-sm relative shadow-[0_0_50px_rgba(233,0,82,0.12)] text-center">
+                    <div className="h-1 bg-gradient-to-r from-[#e90052] to-[#37003c] rounded-t-2xl" />
+                    <div className="p-8 flex flex-col items-center gap-5">
+                        <div className="w-16 h-16 bg-[#e90052]/10 border border-[#e90052]/30 rounded-2xl flex items-center justify-center">
+                            <Mail className="text-[#e90052] w-8 h-8" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-black text-white">Check your inbox</h2>
+                            <p className="text-gray-400 text-sm mt-2 leading-relaxed">
+                                We've sent an activation link to<br />
+                                <span className="text-white font-semibold">{email}</span>
+                            </p>
+                            <p className="text-gray-600 text-xs mt-3">Click the link in the email to activate your account and unlock full access.</p>
+                        </div>
+                        <button onClick={onClose} className="w-full py-3 bg-[#e90052] hover:bg-[#e90052]/90 text-white font-black text-sm uppercase tracking-wider rounded-xl transition-all">
+                            Got it
+                        </button>
+                        <p className="text-xs text-gray-600">Didn't receive it? Check your spam folder.</p>
                     </div>
                 </div>
             </div>

@@ -3,7 +3,7 @@ import { Chrome, LogIn, RefreshCcw, ArrowRight, CheckCircle2, Download, External
 
 const SetupView: React.FC = () => {
     return (
-        <div className="min-h-screen bg-slate-950 pt-24 pb-12 px-4 relative overflow-hidden">
+        <div className="min-h-screen bg-slate-950 pt-4 pb-12 px-4 relative overflow-hidden">
             {/* Background elements */}
             <div className="absolute top-0 left-1/4 w-96 h-96 bg-fpl-green/10 rounded-full blur-[120px] pointer-events-none" />
             <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />

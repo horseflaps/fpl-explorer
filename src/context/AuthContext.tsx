@@ -4,6 +4,8 @@ interface User {
     id: number;
     displayname: string;
     email: string;
+    is_verified: boolean;
+    membership_tier: number;
 }
 
 interface AuthContextType {
@@ -20,6 +22,7 @@ interface AuthContextType {
     login: (token: string, user: User) => void;
     logout: () => void;
     isAuthenticated: boolean;
+    isVerified: boolean;
     extensionDetected: boolean;
     isLoginOpen: boolean;
     setIsLoginOpen: (open: boolean) => void;
@@ -81,7 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [token]);
 
     useEffect(() => {
-        if (!token || !user) {
+        if (!token || !user || !user.is_verified) {
             setFplEntryId(null);
             setFplConnected(false);
             prevFplConnected.current = false;
@@ -165,7 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             extensionDetected,
             isLoginOpen,
             setIsLoginOpen,
-            setFplEntryId, login, logout, isAuthenticated: !!user
+            setFplEntryId, login, logout, isAuthenticated: !!user, isVerified: !!user?.is_verified
         }}>
             {children}
         </AuthContext.Provider>
