@@ -189,8 +189,8 @@ app.get('/api/auth/me', (req, res) => {
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
         // Fetch fresh is_verified from DB so it reflects after email verification
-        db.get('SELECT is_verified, membership_tier FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
-            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1 } });
+        db.get('SELECT is_verified, membership_tier, credits, manager_dna FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
+            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1, credits: row?.credits ?? 1, manager_dna: row?.manager_dna || null } });
         });
     });
 });
@@ -199,8 +199,20 @@ app.post('/api/fpl/disconnect', (req, res) => {
     const decoded = requireAuth(req, res);
     if (!decoded) return;
     delete fplValidationCache[decoded.id];
-    db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id], () => {
+    db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL WHERE id = ?', [decoded.id], () => {
         res.json({ ok: true });
+    });
+});
+
+app.post('/api/user/manager-dna', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    const { dna } = req.body;
+    const valid = ['maverick', 'spreadsheet', 'template', 'kneejerk', 'eyetest'];
+    if (!valid.includes(dna)) return res.status(400).json({ error: 'Invalid DNA value' });
+    db.run('UPDATE users SET manager_dna = ? WHERE id = ?', [dna, decoded.id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ ok: true, dna });
     });
 });
 
@@ -481,7 +493,7 @@ app.get('/api/fpl/status', (req, res) => {
     if (!decoded) return;
     db.get('SELECT fpl_entry_id, fpl_session, fpl_expires_at, fpl_refresh_token FROM users WHERE id = ?', [decoded.id], async (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
-        if (!row?.fpl_session) return res.json({ fpl_entry_id: null, fpl_connected: false });
+        if (!row?.fpl_session) return res.json({ fpl_entry_id: row.fpl_entry_id || null, fpl_connected: false });
 
         // Check cache (5 min TTL) — skip cache if entry ID is missing
         const cached = fplValidationCache[decoded.id];
@@ -544,7 +556,7 @@ app.post('/api/fpl/disconnect', (req, res) => {
     const decoded = requireAuth(req, res);
     if (!decoded) return;
     delete fplValidationCache[decoded.id];
-    db.run('UPDATE users SET fpl_session = NULL, fpl_entry_id = NULL WHERE id = ?', [decoded.id], (err) => {
+    db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL WHERE id = ?', [decoded.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: 'FPL account disconnected' });
     });

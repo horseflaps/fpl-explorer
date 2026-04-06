@@ -1064,7 +1064,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             console.log(`[Gemini] FT remaining: ${transfersLeft} | Next GW: ${nextGwId} | Fixtures loaded: ${fixtures.length} | Chips available: ${availableChips.join(', ')}`);
 
-            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips);
+            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null);
             const result = await fetchGeminiAnalysis(prompt);
 
             // Parse structured plan from response

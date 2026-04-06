@@ -1,26 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { CircleUserRound, Mail, Shield, CheckCircle2, XCircle, LogOut, Zap, Bot, Brain, Unlink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { CircleUserRound, Mail, Shield, CheckCircle2, XCircle, LogOut, Zap, Bot, Brain, Unlink, Coins, Dna } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ManagerDNAQuiz from './ManagerDNAQuiz';
+
+const DNA_LABELS: Record<string, string> = {
+    maverick: 'The Maverick',
+    spreadsheet: 'The Spreadsheet Sage',
+    template: 'The Template King',
+    kneejerk: 'The Knee-jerker',
+    eyetest: 'The Eye-Test Purist',
+};
 
 const MyAccountView: React.FC = () => {
-    const { user, token, isVerified, fplConnected, fplEntryId, logout } = useAuth();
+    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser } = useAuth();
+    const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
-    const tierInfo = [
-        { tier: 1, label: 'Scout',    sub: 'Free',      icon: Zap,   color: 'text-gray-400' },
-        { tier: 2, label: 'Co-Pilot', sub: '£5/mo',     icon: Bot,   color: 'text-[#02efff]' },
-        { tier: 3, label: 'Autopilot',sub: '£10/mo',    icon: Brain, color: 'text-fpl-green' },
-    ][( user?.membership_tier ?? 1) - 1];
-    const [confirmLogout, setConfirmLogout] = useState(false);
+    useEffect(() => { refreshUser(); }, []);
     const [confirmDisconnect, setConfirmDisconnect] = useState(false);
     const [disconnecting, setDisconnecting] = useState(false);
-    const [reconnecting, setReconnecting] = useState(false);
-    const fplConnectedRef = useRef(fplConnected);
-    useEffect(() => { fplConnectedRef.current = fplConnected; }, [fplConnected]);
-
-    // When reconnecting, stop spinner once fplConnected becomes true
-    useEffect(() => {
-        if (fplConnected && reconnecting) setReconnecting(false);
-    }, [fplConnected, reconnecting]);
 
     const handleDisconnect = async () => {
         setDisconnecting(true);
@@ -29,15 +26,28 @@ const MyAccountView: React.FC = () => {
         } catch {}
         window.location.reload();
     };
+
+    const tierInfo = [
+        { tier: 1, label: 'Scout',    sub: 'Free',      icon: Zap,   color: 'text-gray-400' },
+        { tier: 2, label: 'Co-Pilot', sub: '£5/mo',     icon: Bot,   color: 'text-[#02efff]' },
+        { tier: 3, label: 'Autopilot',sub: '£10/mo',    icon: Brain, color: 'text-fpl-green' },
+    ][( user?.membership_tier ?? 1) - 1];
+    const [confirmLogout, setConfirmLogout] = useState(false);
     const [fplTeamName, setFplTeamName] = useState<string | null>(null);
 
+    const [reconnecting, setReconnecting] = useState(false);
+
     useEffect(() => {
-        if (!fplConnected || !fplEntryId) return;
+        if (!fplEntryId) return;
         fetch(`/api/fpl/entry/${fplEntryId}`)
             .then(r => r.json())
             .then(d => { if (d.name) setFplTeamName(d.name); })
             .catch(() => {});
-    }, [fplConnected, fplEntryId]);
+    }, [fplEntryId]);
+
+    useEffect(() => {
+        if (fplConnected && reconnecting) setReconnecting(false);
+    }, [fplConnected, reconnecting]);
 
     if (!user) return null;
 
@@ -87,74 +97,104 @@ const MyAccountView: React.FC = () => {
                         <span className="text-sm text-gray-400">FPL connection</span>
                     </div>
                     {fplConnected ? (
-                        <span className="flex items-center gap-1.5 text-sm text-fpl-green font-semibold">
-                            <CheckCircle2 className="w-4 h-4" />
-                            {fplTeamName ?? (fplEntryId ? `#${fplEntryId}` : '...')}
-                        </span>
+                        <div className="flex items-center gap-2">
+                            <span className="flex items-center gap-1.5 text-sm text-fpl-green font-semibold">
+                                <CheckCircle2 className="w-4 h-4" />
+                                {fplTeamName ?? (fplEntryId ? `#${fplEntryId}` : '...')}
+                            </span>
+                            {confirmDisconnect ? (
+                                <>
+                                    <button onClick={() => setConfirmDisconnect(false)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1">Cancel</button>
+                                    <button onClick={handleDisconnect} disabled={disconnecting} className="text-xs text-orange-400 hover:text-orange-300 transition-colors px-1 disabled:opacity-50">
+                                        {disconnecting ? '...' : 'Confirm'}
+                                    </button>
+                                </>
+                            ) : (
+                                <button onClick={() => setConfirmDisconnect(true)} className="text-gray-600 hover:text-orange-400 transition-colors" title="Disconnect">
+                                    <Unlink size={13} />
+                                </button>
+                            )}
+                        </div>
+                    ) : fplEntryId ? (
+                        <button
+                            disabled={reconnecting}
+                            onClick={() => {
+                                setReconnecting(true);
+                                window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: token } }));
+                                setTimeout(() => setReconnecting(false), 15000);
+                            }}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20 disabled:opacity-50"
+                        >
+                            {reconnecting ? 'Connecting...' : `Connect to ${fplTeamName ?? `#${fplEntryId}`}`}
+                        </button>
                     ) : (
                         <span className="flex items-center gap-1.5 text-sm text-gray-500 font-semibold">
-                            <XCircle className="w-4 h-4" /> Not connected
+                            <XCircle className="w-4 h-4" /> No Connection Available
                         </span>
                     )}
                 </div>
 
                 <div className="flex items-center justify-between px-6 py-4">
                     <div className="flex items-center gap-3">
+                        <Dna className="text-gray-500 w-4 h-4" />
+                        <span className="text-sm text-gray-400">Manager DNA</span>
+                    </div>
+                    {user.manager_dna ? (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-fpl-green font-semibold">{DNA_LABELS[user.manager_dna] ?? user.manager_dna}</span>
+                            <button onClick={() => setShowDNAQuiz(true)} className="text-xs text-gray-600 hover:text-gray-400 transition-colors underline">Retake</button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setShowDNAQuiz(true)}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20"
+                        >
+                            <Dna size={13} /> Discover your DNA
+                        </button>
+                    )}
+                </div>
+
+            </div>
+
+            {showDNAQuiz && <ManagerDNAQuiz onClose={() => setShowDNAQuiz(false)} />}
+
+            {/* Membership & Credits */}
+            <div className="bg-slate-900/50 border border-white/10 rounded-2xl divide-y divide-white/5">
+
+                <div className="flex items-center justify-between px-6 py-4">
+                    <div className="flex items-center gap-3">
                         <tierInfo.icon className="text-gray-500 w-4 h-4" />
                         <span className="text-sm text-gray-400">Membership tier</span>
                     </div>
-                    <span className={`flex items-center gap-1.5 text-sm font-semibold ${tierInfo.color}`}>
-                        <tierInfo.icon className="w-4 h-4" />
-                        {tierInfo.label} <span className="text-gray-500 font-normal">— {tierInfo.sub}</span>
-                    </span>
+                    <div className="flex items-center gap-3">
+                        <span className={`flex items-center gap-1.5 text-sm font-semibold ${tierInfo.color}`}>
+                            <tierInfo.icon className="w-4 h-4" />
+                            {tierInfo.label} <span className="text-gray-500 font-normal">— {tierInfo.sub}</span>
+                        </span>
+                        <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                            Upgrade
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-4">
+                    <div className="flex items-center gap-3">
+                        <Coins className="text-gray-500 w-4 h-4" />
+                        <span className="text-sm text-gray-400">Analysis credits</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className={`text-sm font-semibold ${(user.credits ?? 0) > 0 ? 'text-fpl-green' : 'text-red-400'}`}>
+                            {user.credits ?? 0} remaining
+                        </span>
+                        <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                            Buy Credits
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Danger zone */}
             <div className="bg-slate-900/50 border border-white/10 rounded-2xl divide-y divide-white/5">
-
-                {/* Disconnect / Reconnect FPL */}
-                <div className="px-6 py-5 flex items-center justify-between">
-                    <div>
-                        <p className="text-white font-semibold text-sm">FPL Connection</p>
-                        <p className="text-gray-500 text-xs mt-0.5">
-                            {fplConnected ? 'Unlinks your FPL account. You can reconnect at any time.' : 'Reconnects using your stored FPL session. If it fails, log into FPL in another tab first.'}
-                        </p>
-                    </div>
-                    {fplConnected ? (
-                        confirmDisconnect ? (
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => setConfirmDisconnect(false)} className="px-4 py-2 text-xs text-gray-400 hover:text-white transition-colors">Cancel</button>
-                                <button onClick={handleDisconnect} disabled={disconnecting} className="px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 font-bold text-xs rounded-lg transition-colors border border-orange-500/30 disabled:opacity-50">
-                                    {disconnecting ? 'Disconnecting...' : 'Confirm'}
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => setConfirmDisconnect(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 font-bold text-xs rounded-lg transition-colors border border-orange-500/20"
-                            >
-                                <Unlink size={14} /> Disconnect
-                            </button>
-                        )
-                    ) : (
-                        <button
-                            disabled={reconnecting}
-                            onClick={() => {
-                                setReconnecting(true);
-                                // Try extension first (works if it has a cached token)
-                                window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: token } }));
-                                // Open FPL in background tab so extension can grab a fresh session
-                                window.open('https://fantasy.premierleague.com/', '_blank');
-                                // Stop spinner after 15s regardless
-                                setTimeout(() => setReconnecting(false), 15000);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20 disabled:opacity-50"
-                        >
-                            {reconnecting ? 'Reconnecting...' : <><CheckCircle2 size={14} /> Reconnect</>}
-                        </button>
-                    )}
-                </div>
 
                 {/* Sign out */}
                 <div className="px-6 py-5 flex items-center justify-between">

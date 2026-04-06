@@ -96,6 +96,13 @@ function initDb() {
 
         // Migration: Membership tier (1=Scout, 2=Co-Pilot, 3=Autopilot)
         db.run("ALTER TABLE users ADD COLUMN membership_tier INTEGER DEFAULT 1", () => {});
+
+        // Migration: Analysis credits
+        db.run("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 1", () => {});
+        db.run("UPDATE users SET credits = 1 WHERE credits IS NULL", () => {});
+
+        // Migration: Manager DNA archetype
+        db.run("ALTER TABLE users ADD COLUMN manager_dna TEXT", () => {});
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, LogIn, UserPlus, ChevronRight, ChevronLeft, Mail } from 'lucide-react';
+import { X, LogIn, UserPlus, ChevronRight, ChevronLeft, Mail, CheckCircle } from 'lucide-react';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -17,6 +17,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     const [error, setError] = useState('');
     const [emailTaken, setEmailTaken] = useState(false);
     const [awaitingVerification, setAwaitingVerification] = useState(false);
+    const [loginSuccess, setLoginSuccess] = useState(false);
     const { login } = useAuth();
 
     React.useEffect(() => {
@@ -64,7 +65,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Authentication failed');
                 login(data.token, data.user);
-                onClose();
+                setLoginSuccess(true);
+                setTimeout(onClose, 1800);
             } catch (err: any) {
                 setError(err.message);
             }
@@ -99,6 +101,26 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
         resetForm();
         if (preserveEmail) setEmail(savedEmail);
     };
+
+    /* ── LOGIN SUCCESS ── */
+    if (loginSuccess) {
+        return (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-slate-900 border border-fpl-green/30 rounded-2xl w-full max-w-sm relative shadow-[0_0_40px_rgba(0,255,135,0.15)] text-center">
+                    <div className="h-1 bg-gradient-to-r from-fpl-green to-[#02efff] rounded-t-2xl" />
+                    <div className="p-8 flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 bg-fpl-green/10 border border-fpl-green/30 rounded-2xl flex items-center justify-center">
+                            <CheckCircle className="text-fpl-green w-8 h-8" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-black text-white">Welcome back</h2>
+                            <p className="text-gray-400 text-sm mt-1">You're signed in successfully.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     /* ── LOGIN MODAL ── */
     if (isLogin) {

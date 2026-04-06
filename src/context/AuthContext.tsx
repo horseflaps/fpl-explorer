@@ -6,6 +6,8 @@ interface User {
     email: string;
     is_verified: boolean;
     membership_tier: number;
+    credits: number;
+    manager_dna: string | null;
 }
 
 interface AuthContextType {
@@ -13,6 +15,7 @@ interface AuthContextType {
     token: string | null;
     fplEntryId: number | null;
     fplConnected: boolean;
+    wasEverConnected: boolean;
     showFplConnectedModal: boolean;
     dismissFplConnectedModal: () => void;
     showFplDisconnectedToast: boolean;
@@ -21,6 +24,7 @@ interface AuthContextType {
     setFplEntryId: (id: number | null) => void;
     login: (token: string, user: User) => void;
     logout: () => void;
+    refreshUser: () => Promise<void>;
     isAuthenticated: boolean;
     isVerified: boolean;
     extensionDetected: boolean;
@@ -35,6 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
     const [fplEntryId, setFplEntryId] = useState<number | null>(null);
     const [fplConnected, setFplConnected] = useState(false);
+    const [wasEverConnected, setWasEverConnected] = useState(() => sessionStorage.getItem('fpl_was_connected') === 'true');
     const [showFplConnectedModal, setShowFplConnectedModal] = useState(false);
     const [showFplDisconnectedToast, setShowFplDisconnectedToast] = useState(false);
     const [loginGlow, setLoginGlow] = useState(false);
@@ -100,6 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         setFplEntryId(d.fpl_entry_id);
                         const connected = !!d.fpl_connected;
                         setFplConnected(connected);
+                        if (connected) { setWasEverConnected(true); sessionStorage.setItem('fpl_was_connected', 'true'); }
                         if (!initialFplCheckDone.current) {
                             // First check after login — show modal if already connected (once per session)
                             if (connected && !sessionStorage.getItem('fpl_modal_shown')) {
@@ -128,6 +134,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => clearInterval(interval);
     }, [token, user]);
 
+    const refreshUser = async () => {
+        const currentToken = localStorage.getItem('token');
+        if (!currentToken) return;
+        try {
+            const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${currentToken}` } });
+            if (res.ok) { const data = await res.json(); setUser(data.user); }
+        } catch {}
+    };
+
     const login = (newToken: string, newUser: User) => {
         localStorage.setItem('token', newToken);
         sessionStorage.removeItem('fpl_modal_shown');
@@ -152,6 +167,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setFplEntryId(null);
         setFplConnected(false);
+        setWasEverConnected(false);
+        sessionStorage.removeItem('fpl_was_connected');
         prevFplConnected.current = false;
         initialFplCheckDone.current = false;
         window.location.href = '/';
@@ -159,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return (
         <AuthContext.Provider value={{
-            user, token, fplEntryId, fplConnected,
+            user, token, fplEntryId, fplConnected, wasEverConnected,
             showFplConnectedModal,
             dismissFplConnectedModal: () => setShowFplConnectedModal(false),
             showFplDisconnectedToast,
@@ -168,7 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             extensionDetected,
             isLoginOpen,
             setIsLoginOpen,
-            setFplEntryId, login, logout, isAuthenticated: !!user, isVerified: !!user?.is_verified
+            setFplEntryId, login, logout, refreshUser, isAuthenticated: !!user, isVerified: !!user?.is_verified
         }}>
             {children}
         </AuthContext.Provider>

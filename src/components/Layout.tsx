@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
+import ManagerDNAQuiz from './ManagerDNAQuiz';
 import { useAuth } from '../context/AuthContext';
 
 interface LayoutProps {
@@ -12,7 +13,15 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const navigate = useNavigate();
-    const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast, isLoginOpen, setIsLoginOpen } = useAuth();
+    const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast, isLoginOpen, setIsLoginOpen, isVerified } = useAuth();
+    const [showDNAQuiz, setShowDNAQuiz] = useState(false);
+
+    useEffect(() => {
+        if (isVerified && fplConnected && user && !user.manager_dna) {
+            const timer = setTimeout(() => setShowDNAQuiz(true), 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [isVerified, fplConnected, user?.manager_dna]);
 
     const handleFplConnectedDismiss = async () => {
         dismissFplConnectedModal();
@@ -45,6 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     return (
         <div className="min-h-screen bg-[url('https://resources.premierleague.com/premierleague/photo/2023/12/22/a894560a-0490-449e-8798-7c050a490ca9/pl-background.png')] bg-fixed bg-cover bg-center bg-no-repeat bg-slate-950 attachment-fixed text-white font-sans">
             <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+            {showDNAQuiz && <ManagerDNAQuiz onClose={() => setShowDNAQuiz(false)} />}
 
             {/* FPL Connected Modal */}
             {showFplConnectedModal && (

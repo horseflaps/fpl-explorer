@@ -1,5 +1,43 @@
 import type { FPLResponse, EntryPicksResponse, Entry } from '../types/fpl';
 
+const ARCHETYPE_DIRECTIVES: Record<string, { strategy: string; logic: string; tone: string; captain: string; hitRule: string }> = {
+    maverick: {
+        strategy: 'High-Risk / High-Reward. Prioritise players with <10% ownership. Chase upside over safety.',
+        logic: 'Ignore Effective Ownership (EO). Actively look for differential captains to swing mini-leagues. Embrace variance.',
+        tone: 'The Hype-Man. Energetic, bold, and slightly rebellious. Use phrases like "Fortune favors the bold." Celebrate the differential pick.',
+        captain: 'Captain MUST be a differential — ownership below 15% strongly preferred. Only recommend a high-ownership captain if there is literally no viable differential with a good fixture. Explain the differential upside explicitly.',
+        hitRule: 'This manager embraces hits. A -4 or even -8 is on the table if the EV case is strong. Do not shy away from recommending one.',
+    },
+    spreadsheet: {
+        strategy: 'Data-Driven / EV Focused. Prioritise xG, xA, and 5-week fixture difficulty (FDR).',
+        logic: 'Ignore form if underlying stats are good. Use Expected Value (EV) to justify hits. Trust the model above all else.',
+        tone: 'The Analyst. Cold, calculated, and precise. Use terminology like "statistically significant" and "regression to the mean."',
+        captain: 'Captain must be justified purely by xG, xA, and fixture difficulty — not narrative or form. State the underlying stats that support the pick. Never recommend a captain on "vibes" alone.',
+        hitRule: 'Recommend a hit only if the EV calculation clearly supports it. Show the maths: expected points gain minus 4. If EV is positive, recommend it. If not, hold.',
+    },
+    template: {
+        strategy: 'Low-Risk / Rank Protection. Prioritise players with >40% ownership. Never let a rank-killer hurt us.',
+        logic: 'Follow the pack. Avoid points hits unless 2+ players are red-flagged. Safety and consistency are the goals.',
+        tone: 'The Guardian. Protective, cautious, and steady. Use phrases like "Hold the line" and "Safety first."',
+        captain: 'Captain MUST have ownership above 30%. Never recommend a differential captain to this manager — the risk of a rank-damaging blank outweighs any potential gain. Safety is the priority.',
+        hitRule: 'Strongly avoid hits. Only recommend one if 2 or more players are injured/suspended with no bench cover. A hit is a last resort, not a strategy.',
+    },
+    kneejerk: {
+        strategy: 'Form-Chasing / Reactive. Prioritise top scorers from the last two weeks. Follow the momentum.',
+        logic: 'Focus on price rises and immediate momentum. If a player blanks twice they are dead weight. Move fast.',
+        tone: 'The Scout. Urgent, fast-paced, and opportunistic. Use phrases like "Strike while the iron is hot" and "Don\'t miss the train."',
+        captain: 'Captain must be the hottest player in the squad right now — scored or assisted in the last 2 GWs. Momentum is everything. Back the in-form player regardless of ownership.',
+        hitRule: 'Hits are acceptable to chase in-form players. If a top scorer from last week is not in the squad and fixtures are good, a -4 to bring them in is justified. Act fast before the price rises.',
+    },
+    eyetest: {
+        strategy: 'Intuition / Tactical. Prioritise heatmaps and role on the pitch (e.g. is a defender playing as a winger?).',
+        logic: 'Ignore luck-based stats. Focus on Out of Position (OOP) assets. Trust the vibe of the game over the numbers.',
+        tone: 'The Tactician. Observant, insightful, and old-school. Use phrases like "He looked sharp" and "Passed the eye test."',
+        captain: 'Captain should be whoever looked most dangerous on the pitch recently — not whoever has the best xG. Describe WHY they passed the eye test: movement, positioning, involvement. Stats are secondary.',
+        hitRule: 'Consider hits only for players who have clearly fallen out of favour or look off the pace visually. Do not recommend a hit based on stats alone — there must be a tactical or visual justification.',
+    },
+};
+
 export const generateGeminiPrompt = (
     data: FPLResponse,
     picks: EntryPicksResponse,
@@ -8,7 +46,8 @@ export const generateGeminiPrompt = (
     transfersAvailable: number,
     news: any[] = [],
     fixtures: any[] = [],
-    availableChips: string[] = []
+    availableChips: string[] = [],
+    managerDna: string | null = null
 ): string => {
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
@@ -83,6 +122,14 @@ export const generateGeminiPrompt = (
     const chipsUsedNames = history?.chips?.map((c: any) => chipNameMap[c.name] || c.name).join(', ') || 'None';
     const availableChipNames = availableChips.map(c => chipNameMap[c] || c).join(', ') || 'None remaining';
 
+    const gwsPlayed = history?.current?.length ?? 0;
+    const totalHitCost = history?.current?.reduce((sum: number, gw: any) => sum + (gw.event_transfers_cost ?? 0), 0) ?? 0;
+    const totalHitsTaken = totalHitCost / 4;
+    const hitFrequency = gwsPlayed > 0 ? (totalHitsTaken / gwsPlayed).toFixed(2) : '0.00';
+    const historyContext = gwsPlayed > 0
+        ? `This manager has taken ${totalHitsTaken} hit(s) across ${gwsPlayed} GWs this season (${hitFrequency} hits/GW on average).`
+        : 'No seasonal history available yet.';
+
     let toneInstruction = '';
     if (overallRank < 10000) {
         toneInstruction = 'TONE: ELITE RESPECT. Top 10k. Treat as a peer. Focus on marginal gains only. Professional and concise.';
@@ -122,6 +169,17 @@ ${JSON.stringify(topMarketTargets, null, 2)}
 
 ${newsContext}
 
+${managerDna && ARCHETYPE_DIRECTIVES[managerDna] ? `**MANAGER DNA: ${managerDna.toUpperCase()}**
+This manager has been profiled. Every recommendation — transfers, captain, hits, tone — MUST reflect their archetype:
+- **Strategic Directive**: ${ARCHETYPE_DIRECTIVES[managerDna].strategy}
+- **Wolf Logic**: ${ARCHETYPE_DIRECTIVES[managerDna].logic}
+- **Tone of Voice**: ${ARCHETYPE_DIRECTIVES[managerDna].tone}
+- **Captain Rule**: ${ARCHETYPE_DIRECTIVES[managerDna].captain}
+- **Hit Rule**: ${ARCHETYPE_DIRECTIVES[managerDna].hitRule}
+- **Seasonal Hit Pattern**: ${historyContext} Use this to calibrate your hit recommendation — does it fit their established behaviour or are you pushing them out of their comfort zone?` : `**SEASONAL HIT PATTERN**: ${historyContext}`}
+
+**LANGUAGE: Do not use profanity, slurs, or offensive language under any circumstances.**
+
 **MANDATORY RULES — VIOLATIONS MAKE THE PLAN INVALID:**
 1. **Budget**: For each transfer, [buy_price] ≤ [sell_price of outgoing player] + [bank]. The bank updates after each transfer. DO THE MATHS.
 2. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD).
@@ -143,6 +201,7 @@ State the exact plan clearly:
 - **Chip**: [chip name] OR None
 - **Captain**: [Name] | **Vice-Captain**: [Name]
 - **Why this captain**: (one line)
+- **DNA Reasoning**: (one line — how does this captain pick reflect the manager's archetype?)
 
 ## 🔍 PLAYER-BY-PLAYER BREAKDOWN
 For each transfer OUT: why they're being dropped (fixture, form, injury, price)

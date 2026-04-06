@@ -97,7 +97,7 @@ def scan_new_teams(start=None, end=None, dry_run=False, worker_id=0):
             time.sleep(1)
 
         current_id += 1
-        time.sleep(random.uniform(2.5, 4.5))
+        time.sleep(random.uniform(1, 2))
 
     log.info(f"Scan complete. Total new teams found: {new_teams_found}")
     conn.close()
