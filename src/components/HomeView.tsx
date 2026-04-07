@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink, CheckCircle2, PartyPopper } from 'lucide-react';
+import { TrendingUp, Users, Shield, Chrome, Zap, RefreshCw, Unlink, PartyPopper } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const HomeView: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
-    const verified = searchParams.get('verified');
     const activateToken = searchParams.get('activate');
     const [activateStatus, setActivateStatus] = useState<'idle' | 'success' | 'error' | 'needs-login'>('idle');
     const { isAuthenticated, token, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen } = useAuth();
