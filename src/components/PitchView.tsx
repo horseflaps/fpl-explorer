@@ -26,7 +26,7 @@ interface PitchViewProps {
 
 const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // Auth context — must be first so user is available throughout
-    const { user, token, fplEntryId, fplConnected, setFplEntryId } = useAuth();
+    const { user, token, fplEntryId, fplConnected, setFplEntryId, refreshUser } = useAuth();
 
     // Helper to calculate free transfers based on history
     const calculateFreeTransfers = (history: any, entryData: Entry | null, targetGw: number): number => {
@@ -204,6 +204,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
     const [wolfPlan, setWolfPlan] = useState<WolfPlan | null>(null);
+    const [isExecuting, setIsExecuting] = useState(false);
+    const [executeResult, setExecuteResult] = useState<{ success: boolean; error?: string } | null>(null);
     const [news, setNews] = useState<NewsArticle[]>([]);
 
     // Fetch News on Mount
@@ -1040,6 +1042,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         const picksToUse = picksOverride || picksData;
         if (!picksToUse || !entryData) return;
 
+        if ((user?.credits ?? 0) < 1) return;
+
         setIsAiLoading(true);
         setAiAnalysisText(null);
         setWolfPlan(null);
@@ -1085,6 +1089,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             setAiAnalysisText(displayText);
 
+            if (token && displayText.trim().length > 50) {
+                fetch('/api/user/deduct-credit', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                }).then(() => refreshUser()).catch(() => {});
+            }
+
             if (token) {
                 fetch('/api/user/analyses', {
                     method: 'POST',
@@ -1092,7 +1103,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     body: JSON.stringify({
                         team_name: entryData.name,
                         entry_id: entryData.id,
-                        gameweek: picksToUse.entry_history.event,
+                        gameweek: picksToUse.entry_history?.event ?? 0,
                         analysis_text: displayText,
                     })
                 }).catch(e => console.warn('[DEV] Failed to save analysis:', e));
@@ -1105,39 +1116,84 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         }
     };
 
-    const handleExecutePlan = () => {
-        if (!wolfPlan || !picksData || !data) return;
+    const handleExecutePlan = async () => {
+        if (!wolfPlan || !picksData || !data || !entryData || !token) return;
 
-        // Build a deep copy of current picks to apply plan to
-        const newPicks: EntryPicksResponse = JSON.parse(JSON.stringify(picksData));
+        setIsExecuting(true);
+        setExecuteResult(null);
 
-        for (const transfer of wolfPlan.transfers) {
-            const outPlayer = data.elements.find(e => e.web_name === transfer.out_name);
-            const inPlayer = data.elements.find(e => e.web_name === transfer.in_name);
-            if (!outPlayer || !inPlayer) {
-                console.warn(`[ExecutePlan] Could not match players: ${transfer.out_name} → ${transfer.in_name}`);
-                continue;
+        try {
+            const nextGwId = data.events.find(e => e.is_next)?.id
+                ?? ((data.events.find(e => e.is_current)?.id ?? 0) + 1);
+
+            // 1. Submit transfers (includes chip activation)
+            if (wolfPlan.transfers.length > 0 || wolfPlan.chip) {
+                const transferPayload = {
+                    transfers: wolfPlan.transfers.map(t => {
+                        const outPlayer = data.elements.find(e => e.web_name === t.out_name);
+                        const inPlayer = data.elements.find(e => e.web_name === t.in_name);
+                        return {
+                            element_in: inPlayer?.id,
+                            element_out: outPlayer?.id,
+                            purchase_price: Math.round((t.buy_price ?? 0) * 10),
+                            selling_price: Math.round((t.sell_price ?? 0) * 10),
+                        };
+                    }).filter(t => t.element_in && t.element_out),
+                    chip: wolfPlan.chip || null,
+                    entry: entryData.id,
+                    event: nextGwId,
+                };
+
+                const res = await fetch('/api/fpl-auth/transfers/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(transferPayload),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || err.non_field_errors?.[0] || err.error || `Transfer failed (${res.status})`);
+                }
             }
-            const pickIdx = newPicks.picks.findIndex(p => p.element === outPlayer.id);
-            if (pickIdx !== -1) {
-                newPicks.picks[pickIdx] = { ...newPicks.picks[pickIdx], element: inPlayer.id };
-            }
-        }
 
-        // Apply captain / VC
-        if (wolfPlan.captain || wolfPlan.vice_captain) {
+            // 2. Update captain / VC via my-team
             const captainPlayer = data.elements.find(e => e.web_name === wolfPlan.captain);
             const vcPlayer = data.elements.find(e => e.web_name === wolfPlan.vice_captain);
-            newPicks.picks = newPicks.picks.map(p => ({
-                ...p,
+
+            // Build updated picks — apply transfers first, then captain flags
+            const updatedPicks = picksData.picks.map(p => ({ ...p }));
+            for (const t of wolfPlan.transfers) {
+                const outPlayer = data.elements.find(e => e.web_name === t.out_name);
+                const inPlayer = data.elements.find(e => e.web_name === t.in_name);
+                if (!outPlayer || !inPlayer) continue;
+                const idx = updatedPicks.findIndex(p => p.element === outPlayer.id);
+                if (idx !== -1) updatedPicks[idx] = { ...updatedPicks[idx], element: inPlayer.id };
+            }
+
+            const myTeamPicks = updatedPicks.map(p => ({
+                element: p.element,
+                position: p.position,
                 is_captain: captainPlayer ? p.element === captainPlayer.id : p.is_captain,
                 is_vice_captain: vcPlayer ? p.element === vcPlayer.id : p.is_vice_captain,
             }));
-        }
 
-        setEditedPicks(newPicks);
-        setIsEditingTeam(true);
-        setShowAnalysis(false);
+            const teamRes = await fetch(`/api/fpl-auth/my-team/${entryData.id}/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ picks: myTeamPicks, chip: null }),
+            });
+
+            if (!teamRes.ok) {
+                const err = await teamRes.json().catch(() => ({}));
+                throw new Error(err.detail || err.non_field_errors?.[0] || err.error || `Captain update failed (${teamRes.status})`);
+            }
+
+            setExecuteResult({ success: true });
+        } catch (err: any) {
+            setExecuteResult({ success: false, error: err.message });
+        } finally {
+            setIsExecuting(false);
+        }
     };
 
     const handleSaveTeam = async () => {
@@ -1854,12 +1910,24 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     </div>
 
                                     {/* Execute button */}
-                                    <button
-                                        onClick={handleExecutePlan}
-                                        className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
-                                    >
-                                        ⚡ Execute Plan
-                                    </button>
+                                    {executeResult?.success ? (
+                                        <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
+                                            ✓ Plan Applied to FPL
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {executeResult?.error && (
+                                                <p className="text-red-400 text-xs text-center mb-2">{executeResult.error}</p>
+                                            )}
+                                            <button
+                                                onClick={handleExecutePlan}
+                                                disabled={isExecuting}
+                                                className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
+                                            >
+                                                {isExecuting ? <><Loader2 size={15} className="animate-spin" /> Applying...</> : '⚡ Execute Plan'}
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -2248,7 +2316,25 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             </div>
 
             {/* AI Diagnosis CTA - Floating below stats */}
-            <div className={`max-w-4xl mx-auto px-4 md:px-0 transition-all duration-500 ${isEditingTeam ? 'sticky bottom-6 z-50' : ''}`}>
+            {(user?.credits ?? 0) < 1 && (
+                <div className="max-w-4xl mx-auto px-4 md:px-0">
+                    <div className="w-full rounded-2xl border border-red-500/30 bg-red-500/5 p-5 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
+                                <AlertCircle className="text-red-400 w-6 h-6" />
+                            </div>
+                            <div>
+                                <p className="text-white font-black text-sm">No Analysis Credits</p>
+                                <p className="text-gray-400 text-xs mt-0.5">You have no credits remaining. Buy more to run a Wolf analysis.</p>
+                            </div>
+                        </div>
+                        <button className="shrink-0 px-5 py-2.5 bg-fpl-green/10 border border-fpl-green/30 text-fpl-green font-black text-xs uppercase tracking-wide rounded-xl hover:bg-fpl-green/20 transition-all">
+                            Buy Credits
+                        </button>
+                    </div>
+                </div>
+            )}
+            <div className={`max-w-4xl mx-auto px-4 md:px-0 transition-all duration-500 ${isEditingTeam ? 'sticky bottom-6 z-50' : ''} ${(user?.credits ?? 0) < 1 ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div
                     className={`
                         w-full relative group overflow-hidden rounded-2xl border transition-all shadow-2xl

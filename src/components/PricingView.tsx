@@ -1,5 +1,6 @@
 import React from 'react';
 import { Zap, Bot, Brain, Check } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const analysisTiers = [
     { qty: 1,  total: '£2.00',  perUnit: '£2.00',  saving: null },
@@ -69,6 +70,17 @@ const membershipTiers = [
 ];
 
 const PricingView: React.FC = () => {
+    const { user } = useAuth();
+    const userTier = user?.membership_tier ?? 0;
+
+    const getTierButton = (cardIndex: number) => {
+        const cardTier = cardIndex + 1;
+        if (!user) return { label: 'Get Started', style: 'border-white/20 text-gray-300 hover:bg-white/5' };
+        if (cardTier === userTier) return { label: 'Current Plan', style: 'border-white/10 text-gray-500 cursor-default', disabled: true };
+        if (cardTier > userTier) return { label: 'Upgrade', style: 'bg-fpl-green text-slate-900 border-fpl-green hover:bg-fpl-green/90 shadow-[0_0_15px_rgba(0,255,135,0.2)]' };
+        return { label: 'Downgrade', style: 'border-slate-700 text-gray-500 hover:bg-white/5' };
+    };
+
     return (
         <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in zoom-in duration-500 py-8">
 
@@ -78,7 +90,9 @@ const PricingView: React.FC = () => {
                 <p className="text-gray-400 text-sm mb-6">Choose how much of the work you want the Wolf to handle.</p>
 
                 <div className="grid md:grid-cols-3 gap-5">
-                    {membershipTiers.map((tier) => (
+                    {membershipTiers.map((tier, i) => {
+                        const btn = getTierButton(i);
+                        return (
                         <div key={tier.name} className={`relative rounded-xl border ${tier.border} ${tier.bg} p-6 flex flex-col gap-4`}>
                             {tier.badge && (
                                 <span className={`absolute top-4 right-4 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${tier.color} border ${tier.border}`}>
@@ -110,11 +124,15 @@ const PricingView: React.FC = () => {
                                 ))}
                             </ul>
 
-                            <button className={`mt-2 w-full py-2.5 rounded-lg font-black text-sm uppercase tracking-wide border ${tier.border} ${tier.color} hover:bg-white/5 transition-all`}>
-                                Get Started
+                            <button
+                                disabled={btn.disabled}
+                                className={`mt-2 w-full py-2.5 rounded-lg font-black text-sm uppercase tracking-wide border transition-all ${btn.style}`}
+                            >
+                                {btn.label}
                             </button>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 

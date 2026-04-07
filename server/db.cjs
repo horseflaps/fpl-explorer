@@ -106,6 +106,49 @@ function initDb() {
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
 
+        // Migration: active flag — recreate table to drop email UNIQUE constraint,
+        // replace with partial unique index (unique email only when active = 1)
+        db.get("SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='active'", (err, row) => {
+            if (err || row?.count > 0) return; // already migrated
+            console.log('[DB] Migrating: adding active column and replacing email unique constraint...');
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+                db.run(`CREATE TABLE users_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    displayname TEXT,
+                    email TEXT,
+                    password_hash TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    fpl_session TEXT,
+                    fpl_entry_id INTEGER,
+                    fpl_refresh_token TEXT,
+                    fpl_expires_at INTEGER,
+                    is_verified INTEGER DEFAULT 0,
+                    email_token TEXT,
+                    membership_tier INTEGER DEFAULT 1,
+                    credits INTEGER DEFAULT 1,
+                    manager_dna TEXT,
+                    active INTEGER DEFAULT 1
+                )`);
+                db.run(`INSERT INTO users_new SELECT
+                    id, displayname, email, password_hash, created_at,
+                    fpl_session, fpl_entry_id, fpl_refresh_token, fpl_expires_at,
+                    is_verified, email_token, membership_tier, credits, manager_dna, 1
+                    FROM users`);
+                db.run('DROP TABLE users');
+                db.run('ALTER TABLE users_new RENAME TO users');
+                db.run('CREATE UNIQUE INDEX idx_users_active_email ON users(email) WHERE active = 1');
+                db.run('COMMIT', (err) => {
+                    if (err) {
+                        console.error('[DB] Migration failed:', err.message);
+                        db.run('ROLLBACK');
+                    } else {
+                        console.log('[DB] active column migration complete.');
+                    }
+                });
+            });
+        });
+
         // TV Broadcast Cache Table — stores full event result per event+country
         // Drop old per-fixture schema if it exists, then recreate
         db.run(`DROP TABLE IF EXISTS tv_cache`, () => {

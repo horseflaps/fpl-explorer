@@ -14,6 +14,7 @@ import PricingView from './components/PricingView';
 import SetupView from './components/SetupView';
 import HowItWorksView from './components/HowItWorksView';
 import FAQView from './components/FAQView';
+import ContactView from './components/ContactView';
 import VerifiedRoute from './components/VerifiedRoute';
 import MyAccountView from './components/MyAccountView';
 import Layout from './components/Layout';
@@ -70,7 +71,8 @@ function App() {
     );
   }
 
-  const currentGameweek = data.events.find(e => e.is_current) || data.events.find(e => e.is_next);
+  const nextGameweek = data.events.find(e => e.is_next);
+  const currentGameweek = nextGameweek || data.events.find(e => e.is_current);
 
   return (
     <AuthProvider>
@@ -90,6 +92,7 @@ function App() {
             <Route path="/my-account" element={<MyAccountView />} />
             <Route path="/how-it-works" element={<HowItWorksView />} />
             <Route path="/faq" element={<FAQView />} />
+            <Route path="/contact" element={<ContactView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

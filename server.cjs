@@ -8,6 +8,8 @@ const bcrypt = require('bcryptjs');
 const db = require('./server/db.cjs');
 const sqlite3 = require('sqlite3').verbose();
 const { Resend } = require('resend');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 console.log('[Resend] API key loaded:', process.env.RESEND_API_KEY ? 'YES' : 'MISSING');
@@ -45,7 +47,7 @@ app.post('/api/auth/signup', (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
     const emailToken = require('crypto').randomBytes(32).toString('hex');
 
-    db.run('INSERT INTO users (displayname, email, password_hash, is_verified, email_token) VALUES (?, ?, ?, 0, ?)', [display_name, email, hash, emailToken], function (err) {
+    db.run('INSERT INTO users (displayname, email, password_hash, is_verified, email_token, active) VALUES (?, ?, ?, 0, ?, 1)', [display_name, email, hash, emailToken], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE constraint failed')) {
                 if (err.message.includes('users.email')) return res.status(409).json({ error: 'Email already registered' });
@@ -158,7 +160,7 @@ app.post('/api/auth/activate', (req, res) => {
 app.post('/api/auth/check-email', (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
-    db.get('SELECT id FROM users WHERE email = ?', [email.trim()], (err, row) => {
+    db.get('SELECT id FROM users WHERE email = ? AND active = 1', [email.trim()], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ taken: !!row });
     });
@@ -168,7 +170,7 @@ app.post('/api/auth/login', (req, res) => {
     let { email, password } = req.body;
     if (email) email = email.trim();
 
-    db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+    db.get('SELECT * FROM users WHERE email = ? AND active = 1', [email], (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -201,6 +203,19 @@ app.post('/api/fpl/disconnect', (req, res) => {
     delete fplValidationCache[decoded.id];
     db.run('UPDATE users SET fpl_session = NULL, fpl_refresh_token = NULL, fpl_expires_at = NULL WHERE id = ?', [decoded.id], () => {
         res.json({ ok: true });
+    });
+});
+
+app.post('/api/user/deduct-credit', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    db.get('SELECT credits FROM users WHERE id = ?', [decoded.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row || row.credits < 1) return res.status(403).json({ error: 'No analysis credits remaining.' });
+        db.run('UPDATE users SET credits = credits - 1 WHERE id = ?', [decoded.id], (err2) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            res.json({ ok: true, credits: row.credits - 1 });
+        });
     });
 });
 
@@ -345,7 +360,10 @@ app.delete('/api/user/teams/:id', (req, res) => {
 
 app.get('/api/team-search', (req, res) => {
     const q = req.query.q;
-    console.log(`[API] Searching for: ${q}`);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = 20;
+    const offset = (page - 1) * limit;
+    console.log(`[API] Searching for: ${q} (page ${page})`);
 
     if (!q || q.length < 2) {
         return res.json([]);
@@ -353,17 +371,14 @@ app.get('/api/team-search', (req, res) => {
 
     const fplDb = new sqlite3.Database(FPL_DB_PATH);
 
-    const queryCode = `
-      SELECT t.team_id, t.team_name, t.manager_name
-      FROM teams_fts f
-      JOIN teams t ON f.rowid = t.id
-      WHERE teams_fts MATCH ?
-      ORDER BY f.rank
-      LIMIT 20
-    `;
+    // Numeric query → direct team_id lookup
+    const isNumeric = /^\d+$/.test(q.trim());
+    const queryCode = isNumeric
+        ? `SELECT team_id, team_name, manager_name FROM teams WHERE team_id = ? LIMIT ${limit} OFFSET ${offset}`
+        : `SELECT t.team_id, t.team_name, t.manager_name FROM teams_fts f JOIN teams t ON f.rowid = t.id WHERE teams_fts MATCH ? ORDER BY f.rank LIMIT ${limit} OFFSET ${offset}`;
 
     // FTS5 Prefix Search
-    const searchQuery = q.trim().split(/\s+/).map(term => term + '*').join(' ');
+    const searchQuery = isNumeric ? q.trim() : q.trim().split(/\s+/).map(term => term + '*').join(' ');
 
     fplDb.all(queryCode, [searchQuery], (err, rows) => {
         fplDb.close();
@@ -419,6 +434,47 @@ app.delete('/api/user/analyses/:id', (req, res) => {
             res.json({ message: 'Deleted' });
         });
     });
+});
+
+// Contact form
+app.post('/api/contact', upload.single('attachment'), async (req, res) => {
+    const { name, email, subject, message } = req.body;
+    if (!name || !email || !subject || !message) {
+        return res.status(400).json({ error: 'All fields are required.' });
+    }
+
+    const attachments = [];
+    if (req.file) {
+        attachments.push({
+            filename: req.file.originalname,
+            content: req.file.buffer.toString('base64'),
+        });
+    }
+
+    try {
+        await resend.emails.send({
+            from: 'The Wolf <thewolf@fantasypremierwolf.com>',
+            to: 'thewolf@fantasypremierwolf.com',
+            replyTo: email,
+            subject: `[Contact] ${subject}`,
+            html: `
+                <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0f172a;color:#e2e8f0;padding:32px;border-radius:12px;">
+                    <h2 style="color:#00ff87;margin:0 0 24px;">New Contact Message</h2>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+                        <tr><td style="padding:8px 0;color:#94a3b8;width:80px;">From</td><td style="padding:8px 0;color:#fff;">${name} &lt;${email}&gt;</td></tr>
+                        <tr><td style="padding:8px 0;color:#94a3b8;">Subject</td><td style="padding:8px 0;color:#fff;">${subject}</td></tr>
+                    </table>
+                    <div style="background:#1e293b;border-radius:8px;padding:16px;white-space:pre-wrap;color:#e2e8f0;font-size:14px;line-height:1.6;">${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                    ${req.file ? `<p style="margin-top:16px;color:#94a3b8;font-size:12px;">📎 Attachment: ${req.file.originalname}</p>` : ''}
+                </div>
+            `,
+            attachments,
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[Contact] Email error:', err);
+        res.status(500).json({ error: 'Failed to send message.' });
+    }
 });
 
 // Get News Articles (for AI Context)

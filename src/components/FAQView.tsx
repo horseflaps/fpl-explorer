@@ -4,7 +4,7 @@ import { ChevronDown, HelpCircle, ArrowRight } from 'lucide-react';
 const faqs = [
     {
         q: 'Do I need the Chrome extension to use the platform?',
-        a: `No — but you'll get much more value with it. Without the extension you can still search any FPL manager by name or entry ID, load their team, run AI analysis, and use all the data tools (Players, Teams, Fixtures, Standings, Gameweek Live). The extension simply means your own team loads automatically every time you visit, and higher membership tiers can apply transfers on your behalf.`,
+        a: `It depends on your tier.\n\nScout (Free)\n\nNo extension needed. You can search any FPL manager by name or entry ID, load their team, run AI analysis, and use all the data tools (Players, Teams, Fixtures, Standings, Gameweek Live). The extension is optional — it just means your own team loads automatically every time you visit.\n\nCo-Pilot & Autopilot\n\nThe extension is required. Both tiers need an active FPL session to apply transfers directly to your account. Without it, the Wolf can still analyse your team but cannot action any moves on your behalf.`,
     },
     {
         q: 'Is my FPL password or personal data at risk?',
@@ -28,7 +28,7 @@ const faqs = [
     },
     {
         q: 'What is the difference between the Scout, Co-Pilot, and Autopilot tiers?',
-        a: `All three tiers include full AI analysis. The difference is execution. Scout (free) gives you the recommendations and you act on them manually on the FPL website. Co-Pilot (£5/month) lets you trigger the analysis when you're ready and then has the Wolf apply the transfers directly to your FPL team — you approve before anything is confirmed. Autopilot (£10/month) is fully automated: the Wolf runs analysis before every gameweek deadline and applies the optimal moves without you needing to do anything, then sends you a detailed email log of every decision.`,
+        a: `All three tiers include full AI analysis. The difference is how much the Wolf does for you.\n\nScout (Free)\n\n- Full AI analysis on demand\n- Detailed transfer recommendations, captain picks, and chip advice\n- You apply transfers manually on the FPL website\n\nCo-Pilot (£5/month)\n\n- Everything in Scout\n- Trigger analysis whenever you're ready\n- The Wolf applies transfers directly to your FPL account\n- You review and approve every move before it's confirmed\n\nAutopilot (£10/month)\n\n- Everything in Co-Pilot\n- Fully automated — no action required from you\n- The Wolf runs analysis before every gameweek deadline and applies the optimal transfers automatically\n- A detailed email summary of every decision is sent after each run`,
     },
     {
         q: 'Does the platform work on mobile?',
@@ -41,6 +41,10 @@ const faqs = [
     {
         q: 'How do I get the best results from the AI analysis?',
         a: `A few tips: (1) Make sure your FPL account is connected so the Wolf has your real team, bank balance, and chip status — not a guessed approximation. (2) Run analysis a few days before the gameweek deadline when the fixture picture is clear and team news is emerging. (3) Read the full reasoning, not just the headline pick — understanding why the Wolf recommends a player helps you judge whether a last-minute injury or team news changes the conclusion. (4) Use the Players and Fixtures tabs to verify the underlying data yourself before confirming any transfer.`,
+    },
+    {
+        q: 'Why did I get a different analysis for the same team?',
+        a: `There are two reasons — one is the AI, one is the data.\n\n1. The AI is non-deterministic by default\n\nGemini doesn't generate text by simply picking the most likely next word every time. Instead it samples from a probability distribution, controlled by three parameters:\n\n- Temperature — scales how confident the model is. Higher = more creative and varied. Lower = more focused and consistent. We've set this to 0.2 (low) to reduce variance.\n- Top-p — limits the model to only tokens whose combined probability reaches a threshold. Cuts out low-probability "wild" choices.\n- Top-k — limits the model to only the top K most likely tokens at each step.\n\nEven at low temperature, genuinely borderline players (like a defender with EP 3.0 and declining fixtures) can legitimately go either way — the model isn't wrong either time, the case is just close.\n\n2. The underlying data changes between analysis runs\n\nEvery analysis fetches live data from the FPL API at the moment you click. Between two runs an hour apart:\n\n- Transfer sentiment shifts (a player might gain or lose 50k owners)\n- Price changes can occur\n- ep_next values update as the gameweek approaches\n- News and injury statuses can change\n\nSo even if the AI behaved identically, the input data may not be the same.\n\nThe bottom line\n\nThink of it like two pundits analysing the same squad — they're working from similar information but borderline calls will differ. The Wolf is most reliable on clear-cut decisions (obvious deadweight, standout captains) and least consistent on players sitting right on the fence.`,
     },
 ];
 
@@ -68,8 +72,32 @@ const FAQItem: React.FC<{ item: typeof faqs[0]; index: number }> = ({ item, inde
             </button>
             {open && (
                 <div className="px-6 pb-6">
-                    <div className="ml-9 border-l-2 border-fpl-green/30 pl-5">
-                        <p className="text-gray-300 text-sm leading-relaxed">{item.a}</p>
+                    <div className="ml-9 border-l-2 border-fpl-green/30 pl-5 space-y-2">
+                        {item.a.split('\n\n').map((block, i) => {
+                            const lines = block.split('\n');
+                            // Numbered section heading: "1. ..." or "2. ..."
+                            if (/^\d+\.\s/.test(block) && lines.length === 1) {
+                                return <p key={i} className="text-fpl-green text-sm font-bold pt-1">{block}</p>;
+                            }
+                            // Short subheading (no period, ≤ 25 chars)
+                            if (lines.length === 1 && block.length <= 25 && !block.endsWith('.')) {
+                                return <p key={i} className="text-fpl-green text-sm font-bold pt-1">{block}</p>;
+                            }
+                            // Bullet list
+                            if (lines.every(l => l.startsWith('- '))) {
+                                return (
+                                    <ul key={i} className="space-y-1 pl-1">
+                                        {lines.map((l, j) => (
+                                            <li key={j} className="flex gap-2 text-gray-300 text-sm leading-relaxed">
+                                                <span className="text-fpl-green mt-1.5 shrink-0">▸</span>
+                                                <span>{l.slice(2)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                );
+                            }
+                            return <p key={i} className="text-gray-300 text-sm leading-relaxed">{block}</p>;
+                        })}
                     </div>
                 </div>
             )}

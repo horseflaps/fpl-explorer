@@ -10,4 +10,9 @@ echo Scanning for new teams...
 python scripts/scan_new_ids.py
 
 echo [%date% %time%] Scan Complete.
+
+echo Rebuilding FTS search index...
+python -c "import sqlite3; db = sqlite3.connect('T:/My Drive/FPL/db/fpl.db'); db.execute(\"INSERT INTO teams_fts(teams_fts) VALUES('rebuild')\"); db.commit(); db.close(); print('FTS index rebuilt.')"
+
+echo [%date% %time%] All done.
 pause

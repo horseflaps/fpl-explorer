@@ -2,7 +2,10 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 export default async function handler(req, res) {
-    const { q } = req.query;
+    const { q, page: pageParam } = req.query;
+    const page = Math.max(1, parseInt(pageParam) || 1);
+    const limit = 20;
+    const offset = (page - 1) * limit;
 
     if (!q || q.length < 2) {
         return res.status(200).json([]);
@@ -18,7 +21,7 @@ export default async function handler(req, res) {
             JOIN teams t ON f.rowid = t.id
             WHERE teams_fts MATCH ?
             ORDER BY f.rank
-            LIMIT 20
+            LIMIT ${limit} OFFSET ${offset}
         `;
         // FTS5 Prefix Search
         // "Man Cit" -> "Man* Cit*"

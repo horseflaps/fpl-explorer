@@ -54,9 +54,9 @@ export const generateGeminiPrompt = (
 
     const teamName = entry.name;
     const managerName = `${entry.player_first_name} ${entry.player_last_name}`;
-    const overallRank = picks.entry_history.overall_rank;
-    const totalPoints = picks.entry_history.total_points;
-    const gwPoints = picks.entry_history.points;
+    const overallRank = picks.entry_history?.overall_rank ?? 0;
+    const totalPoints = picks.entry_history?.total_points ?? 0;
+    const gwPoints = picks.entry_history?.points ?? 0;
 
     const bank = entry.last_deadline_bank / 10;
 
@@ -131,7 +131,9 @@ export const generateGeminiPrompt = (
         : 'No seasonal history available yet.';
 
     let toneInstruction = '';
-    if (overallRank < 10000) {
+    if (overallRank === 0) {
+        toneInstruction = 'TONE: WELCOMING. Brand new team with no rank yet. Be encouraging and focus on setting up a strong squad for the season ahead.';
+    } else if (overallRank < 10000) {
         toneInstruction = 'TONE: ELITE RESPECT. Top 10k. Treat as a peer. Focus on marginal gains only. Professional and concise.';
     } else if (overallRank < 100000) {
         toneInstruction = 'TONE: ENCOURAGING BUT FIRM. Top 100k. Acknowledge the good season, push them further. Minimal banter.';
@@ -147,7 +149,7 @@ export const generateGeminiPrompt = (
 
     return `
 You are the **Fantasy Premier Wolf** — an elite, aggressive FPL strategist with zero tolerance for bad decisions.
-Analyse this team and produce a CONCRETE, EXECUTABLE plan for GW${picks.entry_history.event + 1}.
+Analyse this team and produce a CONCRETE, EXECUTABLE plan for GW${(picks.entry_history?.event ?? 0) + 1}.
 ${toneInstruction}
 
 **MANAGER:**
@@ -185,7 +187,12 @@ This manager has been profiled. Every recommendation — transfers, captain, hit
 2. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD).
 3. **Blank GWs**: Do NOT recommend buying a player who has "No fixture (blank GW)" unless using Free Hit chip.
 4. **Hits**: Only recommend extra transfers (hits, -4pts each) if the expected gain clearly outweighs the cost. Justify explicitly.
-5. **Chip Logic**: Only recommend a chip if conditions genuinely warrant it (e.g. Bench Boost only if bench is strong, Triple Captain only if standout double-GW captain, Free Hit only for a severe blank/double GW). Do not force chips.
+5. **Chip Logic**: Use strict thresholds — do not use vibes or general squad dissatisfaction:
+   - **Wildcard**: Only if 5+ starting XI players have FDR ≥ 4 in the next gameweek AND free transfers cannot fix the structural issues. Do not use Wildcard just because the squad is "poor".
+   - **Free Hit**: Only if 5+ starting XI players have "No fixture (blank GW)" next gameweek.
+   - **Bench Boost**: Only if at least 3 bench players have good fixtures (FDR ≤ 3) and are likely to start.
+   - **Triple Captain**: Only if there is a standout player with a double gameweek or FDR ≤ 2 home fixture.
+   - If conditions are not met, chip = null. Do not force chips.
 6. **Feasibility**: Every player you recommend buying MUST appear in the TOP BUY TARGETS list above (since that is the only price data you have). Do not invent players.
 
 **OUTPUT FORMAT:**
@@ -227,17 +234,23 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
     const localKey = import.meta.env.VITE_GEMINI_API_KEY;
     const isLocal = !!localKey;
     const url = isLocal
-        ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${localKey}`
+        ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${localKey}`
         : `/api/wolf-analysis`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
 
     try {
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify(isLocal ? {
-                contents: [{ parts: [{ text: prompt }] }]
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1 }
             } : { prompt })
         });
+        clearTimeout(timeout);
 
         if (!response.ok) {
             const status = response.status;
@@ -257,7 +270,11 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
         }
         return data.text || 'No analysis generated.';
     } catch (error: any) {
+        clearTimeout(timeout);
         console.error('Fetch Error:', error);
+        if (error.name === 'AbortError') {
+            throw new Error('Analysis timed out after 90 seconds. Please try again.');
+        }
         throw new Error(error.message || 'Network Error');
     }
 };

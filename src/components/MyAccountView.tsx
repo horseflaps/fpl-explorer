@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CircleUserRound, Mail, Shield, CheckCircle2, XCircle, LogOut, Zap, Bot, Brain, Unlink, Coins, Dna } from 'lucide-react';
+import { CircleUserRound, Mail, Shield, CheckCircle2, XCircle, LogOut, Zap, Bot, Brain, Unlink, Coins, Dna, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import ManagerDNAQuiz from './ManagerDNAQuiz';
 
@@ -12,7 +12,7 @@ const DNA_LABELS: Record<string, string> = {
 };
 
 const MyAccountView: React.FC = () => {
-    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser } = useAuth();
+    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, setIsLoginOpen } = useAuth();
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => { refreshUser(); }, []);
@@ -49,7 +49,25 @@ const MyAccountView: React.FC = () => {
         if (fplConnected && reconnecting) setReconnecting(false);
     }, [fplConnected, reconnecting]);
 
-    if (!user) return null;
+    if (!user) return (
+        <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-10 flex flex-col items-center gap-5 max-w-sm w-full text-center">
+                <div className="w-14 h-14 bg-fpl-green/10 border border-fpl-green/30 rounded-2xl flex items-center justify-center">
+                    <LogIn className="text-fpl-green w-7 h-7" />
+                </div>
+                <div>
+                    <h2 className="text-xl font-black text-white">Sign in required</h2>
+                    <p className="text-gray-400 text-sm mt-1">You need an account to access this page.</p>
+                </div>
+                <button
+                    onClick={() => setIsLoginOpen(true)}
+                    className="w-full py-3 bg-fpl-green hover:bg-fpl-green/90 text-slate-900 font-black text-sm uppercase tracking-wider rounded-xl transition-all shadow-[0_0_20px_rgba(0,255,135,0.2)]"
+                >
+                    Sign In / Sign Up
+                </button>
+            </div>
+        </div>
+    );
 
     return (
         <div className="max-w-2xl mx-auto pt-4 pb-16 px-4 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -169,11 +187,20 @@ const MyAccountView: React.FC = () => {
                     <div className="flex items-center gap-3">
                         <span className={`flex items-center gap-1.5 text-sm font-semibold ${tierInfo.color}`}>
                             <tierInfo.icon className="w-4 h-4" />
-                            {tierInfo.label} <span className="text-gray-500 font-normal">— {tierInfo.sub}</span>
+                            {tierInfo.label}{(user?.membership_tier ?? 1) === 1 && <span className="text-gray-500 font-normal"> — {tierInfo.sub}</span>}
                         </span>
-                        <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
-                            Upgrade
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {(user?.membership_tier ?? 1) > 1 && (
+                                <button className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 font-bold text-xs rounded-lg transition-colors border border-white/10">
+                                    Downgrade
+                                </button>
+                            )}
+                            {(user?.membership_tier ?? 1) < 3 && (
+                                <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                                    Upgrade
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
 

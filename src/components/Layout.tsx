@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import ManagerDNAQuiz from './ManagerDNAQuiz';
@@ -49,6 +49,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/setup', label: 'Setup', icon: Workflow },
         { path: '/how-it-works', label: 'How It Works', icon: BookOpen },
         { path: '/faq', label: 'FAQ', icon: HelpCircle },
+        { path: '/contact', label: 'Contact', icon: Mail },
     ] as const;
 
     return (
@@ -202,13 +203,15 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                         )}
 
                         <div className="pt-2 border-t border-slate-800/50">
-                            <div className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-bold">Current Gameweek</div>
+                            <div className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-bold">{currentGameweek?.is_next ? 'Next Gameweek' : 'Current Gameweek'}</div>
                             <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
                                 <div className="text-lg font-bold text-white mb-1">
                                     {currentGameweek?.name || 'Pre-Season'}
                                 </div>
                                 <div className="text-xs text-gray-400">
-                                    {currentGameweek?.deadline_time ? new Date(currentGameweek.deadline_time).toLocaleDateString() : 'Date TBD'}
+                                    {currentGameweek?.deadline_time
+                                        ? `Deadline: ${new Date(currentGameweek.deadline_time).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                                        : 'Date TBD'}
                                 </div>
                             </div>
                         </div>

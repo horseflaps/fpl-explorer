@@ -36,19 +36,42 @@ const MyTeamsView: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<{ team_id: number; team_name: string; manager_name: string }[]>([]);
     const [searchLoading, setSearchLoading] = useState(false);
+    const [searchPage, setSearchPage] = useState(1);
+    const [searchHasMore, setSearchHasMore] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
 
     useEffect(() => {
-        if (searchQuery.length < 2) { setSearchResults([]); return; }
+        if (searchQuery.length < 2) { setSearchResults([]); setSearchPage(1); setSearchHasMore(false); return; }
         const t = setTimeout(async () => {
             setSearchLoading(true);
+            setSearchPage(1);
             try {
-                const res = await fetch(`/api/team-search?q=${encodeURIComponent(searchQuery)}`);
-                if (res.ok) setSearchResults(await res.json());
+                const res = await fetch(`/api/team-search?q=${encodeURIComponent(searchQuery)}&page=1`);
+                if (res.ok) {
+                    const rows = await res.json();
+                    setSearchResults(rows);
+                    setSearchHasMore(rows.length === 20);
+                }
             } catch {}
             finally { setSearchLoading(false); }
         }, 300);
         return () => clearTimeout(t);
     }, [searchQuery]);
+
+    const loadMoreResults = async () => {
+        const nextPage = searchPage + 1;
+        setLoadingMore(true);
+        try {
+            const res = await fetch(`/api/team-search?q=${encodeURIComponent(searchQuery)}&page=${nextPage}`);
+            if (res.ok) {
+                const rows = await res.json();
+                setSearchResults(prev => [...prev, ...rows]);
+                setSearchPage(nextPage);
+                setSearchHasMore(rows.length === 20);
+            }
+        } catch {}
+        finally { setLoadingMore(false); }
+    };
 
     // Analyses state
     const [analyses, setAnalyses] = useState<SavedAnalysis[]>([]);
@@ -162,7 +185,7 @@ const MyTeamsView: React.FC = () => {
                             {searchLoading && <Loader2 size={16} className="animate-spin text-[#00ff87]" />}
                         </div>
                         {searchResults.length > 0 && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden z-20 shadow-xl">
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden z-20 shadow-xl max-h-96 overflow-y-auto">
                                 {searchResults.map(r => (
                                     <button
                                         key={r.team_id}
@@ -176,6 +199,16 @@ const MyTeamsView: React.FC = () => {
                                         <ArrowRight size={16} className="text-gray-600" />
                                     </button>
                                 ))}
+                                {searchHasMore && (
+                                    <button
+                                        onClick={loadMoreResults}
+                                        disabled={loadingMore}
+                                        className="w-full px-4 py-3 text-[#00ff87] text-xs font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        {loadingMore ? <Loader2 size={13} className="animate-spin" /> : null}
+                                        {loadingMore ? 'Loading...' : 'Load more results'}
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
