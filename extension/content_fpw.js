@@ -34,12 +34,27 @@ window.addEventListener('fpw-login', () => {
 // Listen for reconnect requests from the FPW web app
 window.addEventListener('fpw-reconnect', (e) => {
     const fpwToken = e.detail?.fpwToken || extractFpwToken();
-    if (!fpwToken) return;
+    if (!fpwToken) {
+        window.dispatchEvent(new CustomEvent('fpw-reconnect-result', { detail: { ok: false, error: 'no_fpw_token' } }));
+        return;
+    }
+    // Reset fpwConnected so auto-connect fires on next FPL visit if token is stale
+    chrome.runtime.sendMessage({ type: 'RESET_CONNECTED_STATE' });
+
     chrome.runtime.sendMessage({
         type: 'SEND_TOKEN_TO_FPW',
         fpwToken,
         origin: window.location.origin.replace('5173', '3001')
+    }, (response) => {
+        window.dispatchEvent(new CustomEvent('fpw-reconnect-result', {
+            detail: response || { ok: false, error: 'no_response' }
+        }));
     });
+});
+
+// Reset fpwConnected when the server detects the session expired
+window.addEventListener('fpw-reset-connection', () => {
+    chrome.runtime.sendMessage({ type: 'RESET_CONNECTED_STATE' });
 });
 
 // Listen for popup requesting the FPW token

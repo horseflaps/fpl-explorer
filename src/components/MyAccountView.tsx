@@ -12,7 +12,7 @@ const DNA_LABELS: Record<string, string> = {
 };
 
 const MyAccountView: React.FC = () => {
-    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, setIsLoginOpen } = useAuth();
+    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, forceStatusCheck, setIsLoginOpen, extensionDetected } = useAuth();
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => { refreshUser(); }, []);
@@ -36,6 +36,7 @@ const MyAccountView: React.FC = () => {
     const [fplTeamName, setFplTeamName] = useState<string | null>(null);
 
     const [reconnecting, setReconnecting] = useState(false);
+    const [reconnectMsg, setReconnectMsg] = useState<{ type: 'error' | 'info'; text: string } | null>(null);
 
     useEffect(() => {
         if (!fplEntryId) return;
@@ -46,8 +47,63 @@ const MyAccountView: React.FC = () => {
     }, [fplEntryId]);
 
     useEffect(() => {
-        if (fplConnected && reconnecting) setReconnecting(false);
+        if (fplConnected && reconnecting) {
+            setReconnecting(false);
+            setReconnectMsg(null);
+        }
     }, [fplConnected, reconnecting]);
+
+    const reconnectingRef = React.useRef(false);
+    const handleReconnect = () => {
+        reconnectingRef.current = true;
+        setReconnecting(true);
+        setReconnectMsg(null);
+
+        const onResult = (e: Event) => {
+            window.removeEventListener('fpw-reconnect-result', onResult);
+            reconnectingRef.current = false;
+            const detail = (e as CustomEvent).detail;
+            if (!detail?.ok) {
+                const noToken = detail?.error === 'No token stored' || detail?.error === 'no_fpw_token';
+                setReconnectMsg({
+                    type: 'error',
+                    text: noToken
+                        ? 'No FPL session found. Visit fantasy.premierleague.com while logged in, then try again.'
+                        : `Connection failed: ${detail?.error || 'unknown error'}`
+                });
+                setReconnecting(false);
+            } else {
+                // Token sent — poll aggressively for 15s
+                let polls = 0;
+                const poll = setInterval(() => {
+                    forceStatusCheck();
+                    if (++polls >= 15) {
+                        clearInterval(poll);
+                        // If still not connected after 15s, the token may be expired
+                        setReconnecting(prev => {
+                            if (prev) {
+                                setReconnectMsg({ type: 'error', text: 'Session may have expired. Visit fantasy.premierleague.com to refresh, then try again.' });
+                            }
+                            return false;
+                        });
+                    }
+                }, 1000);
+            }
+        };
+        window.addEventListener('fpw-reconnect-result', onResult);
+
+        window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: token } }));
+
+        // Cleanup listener after 20s if no response
+        setTimeout(() => {
+            window.removeEventListener('fpw-reconnect-result', onResult);
+            if (reconnectingRef.current) {
+                reconnectingRef.current = false;
+                setReconnecting(false);
+                setReconnectMsg({ type: 'error', text: 'No response from extension. Make sure it is installed and active.' });
+            }
+        }, 20000);
+    };
 
     if (!user) return (
         <div className="flex items-center justify-center min-h-[60vh]">
@@ -134,17 +190,20 @@ const MyAccountView: React.FC = () => {
                             )}
                         </div>
                     ) : fplEntryId ? (
-                        <button
-                            disabled={reconnecting}
-                            onClick={() => {
-                                setReconnecting(true);
-                                window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: token } }));
-                                setTimeout(() => setReconnecting(false), 15000);
-                            }}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20 disabled:opacity-50"
-                        >
-                            {reconnecting ? 'Connecting...' : `Connect to ${fplTeamName ?? `#${fplEntryId}`}`}
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                            <button
+                                disabled={reconnecting}
+                                onClick={handleReconnect}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20 disabled:opacity-50"
+                            >
+                                {reconnecting ? 'Connecting...' : `Connect to ${fplTeamName ?? `#${fplEntryId}`}`}
+                            </button>
+                            {reconnectMsg && (
+                                <p className={`text-xs max-w-[220px] text-right ${reconnectMsg.type === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
+                                    {reconnectMsg.text}
+                                </p>
+                            )}
+                        </div>
                     ) : (
                         <span className="flex items-center gap-1.5 text-sm text-gray-500 font-semibold">
                             <XCircle className="w-4 h-4" /> No Connection Available

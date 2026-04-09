@@ -25,6 +25,7 @@ interface AuthContextType {
     login: (token: string, user: User) => void;
     logout: () => void;
     refreshUser: () => Promise<void>;
+    forceStatusCheck: () => void;
     isAuthenticated: boolean;
     isVerified: boolean;
     extensionDetected: boolean;
@@ -47,6 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoginOpen, setIsLoginOpen] = useState(false);
     const prevFplConnected = useRef(false);
     const initialFplCheckDone = useRef(false);
+    const checkStatusRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         const check = () => {
@@ -120,6 +122,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             if (!connected && prevFplConnected.current) {
                                 setShowFplDisconnectedToast(true);
                                 setTimeout(() => setShowFplDisconnectedToast(false), 5000);
+                                // Tell extension to reset fpwConnected so auto-connect fires on next FPL visit
+                                window.dispatchEvent(new CustomEvent('fpw-reset-connection'));
                             }
                         }
                         prevFplConnected.current = connected;
@@ -131,8 +135,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         checkStatus();
         const interval = setInterval(checkStatus, 5000);
-        return () => clearInterval(interval);
+        checkStatusRef.current = checkStatus;
+        return () => { clearInterval(interval); checkStatusRef.current = null; };
     }, [token, user]);
+
+    const forceStatusCheck = () => { checkStatusRef.current?.(); };
 
     const refreshUser = async () => {
         const currentToken = localStorage.getItem('token');
@@ -185,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             extensionDetected,
             isLoginOpen,
             setIsLoginOpen,
-            setFplEntryId, login, logout, refreshUser, isAuthenticated: !!user, isVerified: !!user?.is_verified
+            setFplEntryId, login, logout, refreshUser, forceStatusCheck, isAuthenticated: !!user, isVerified: !!user?.is_verified
         }}>
             {children}
         </AuthContext.Provider>

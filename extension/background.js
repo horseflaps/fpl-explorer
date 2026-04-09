@@ -122,6 +122,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return true;
     }
 
+    if (msg.type === 'RESET_CONNECTED_STATE') {
+        chrome.storage.local.set({ fpwConnected: false }, () => sendResponse({ ok: true }));
+        return true;
+    }
+
     if (msg.type === 'SEND_TOKEN_TO_FPW') {
         // Send token to the FPW app via its API endpoint
         chrome.storage.local.get(['fplToken', 'fplRefreshToken', 'fplExpiresAt', 'fplEntryId'], async (data) => {

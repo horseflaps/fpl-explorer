@@ -724,6 +724,8 @@ app.get('/api/fpl/my-picks', async (req, res) => {
                     multiplier: p.is_captain ? 2 : p.is_vice_captain ? 1 : p.position > 11 ? 0 : 1,
                     is_captain: p.is_captain,
                     is_vice_captain: p.is_vice_captain,
+                    selling_price: p.selling_price ?? null,
+                    purchase_price: p.purchase_price ?? null,
                 })),
                 _live: true,
                 _transfers: data.transfers || null,
@@ -883,7 +885,9 @@ app.use('/api/fpl-auth', async (req, res) => {
                 body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
             });
 
-            const data = await response.json();
+            const text = await response.text();
+            let data;
+            try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
             if (!response.ok) return res.status(response.status).json(data);
             res.json(data);
         } catch (error) {

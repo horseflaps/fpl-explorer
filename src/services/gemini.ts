@@ -92,6 +92,23 @@ export const generateGeminiPrompt = (
         };
     }).filter(Boolean);
 
+    // Build per-club headcount for current squad (used for 3-per-club rule enforcement)
+    const squadClubCount: Record<number, number> = {};
+    for (const p of picks.picks) {
+        const player = getPlayer(p.element);
+        if (player) squadClubCount[player.team] = (squadClubCount[player.team] ?? 0) + 1;
+    }
+
+    // Human-readable club distribution for the prompt
+    const squadClubSummary = Object.entries(squadClubCount)
+        .sort(([, a], [, b]) => b - a)
+        .map(([teamId, count]) => {
+            const teamName = getTeam(Number(teamId))?.short_name ?? `Team${teamId}`;
+            const atLimit = count >= 3 ? ' ← AT LIMIT (max 3)' : '';
+            return `${teamName}: ${count}${atLimit}`;
+        })
+        .join(', ');
+
     const topMarketTargets = data.elements
         .filter(p => {
             const isMyPlayer = picks.picks.some(pick => pick.element === p.id);
@@ -101,6 +118,8 @@ export const generateGeminiPrompt = (
         .slice(0, 20)
         .map(p => {
             const fix = fixtureByTeam[p.team]?.join(' & ') || 'Blank GW';
+            const ownedFromClub = squadClubCount[p.team] ?? 0;
+            const clubBlocked = ownedFromClub >= 3 ? ' ⛔ BLOCKED (3/3 from this club already)' : ownedFromClub === 2 ? ' ⚠️ CAUTION (2/3 from this club)' : '';
             return {
                 name: p.web_name,
                 team: getTeam(p.team)?.short_name || '?',
@@ -109,6 +128,7 @@ export const generateGeminiPrompt = (
                 ep_next: p.ep_next,
                 form: p.form,
                 next_fixture: fix,
+                club_rule: ownedFromClub === 0 ? 'OK' : `${ownedFromClub}/3 owned${clubBlocked}`,
                 sentiment: `+${p.transfers_in_event.toLocaleString()} in / -${p.transfers_out_event.toLocaleString()} out this GW`,
             };
         });
@@ -147,6 +167,20 @@ export const generateGeminiPrompt = (
         ? `**REAL-WORLD NEWS & GOSSIP:**\n${news.map(n => `- [${n.source}] ${n.title}: ${n.summary}`).join('\n')}`
         : 'No specific news available.';
 
+    // Rank-based urgency escalation injected into chip/hit rules
+    let rankUrgency: string;
+    if (overallRank === 0) {
+        rankUrgency = 'RANK CONTEXT: Brand new team (no rank yet). Play it safe — no hits, no chips unless exceptional circumstances.';
+    } else if (overallRank < 100000) {
+        rankUrgency = `RANK CONTEXT: Elite rank (${overallRank.toLocaleString()}). Protect position — only recommend a Wildcard if 5+ XI players have FDR ≥ 4. Hits require strong EV case.`;
+    } else if (overallRank < 1000000) {
+        rankUrgency = `RANK CONTEXT: Good rank (${overallRank.toLocaleString()}). Standard thresholds apply. Wildcard if 5+ XI players have FDR ≥ 4 OR 4+ players are injured/out-of-form. Hits if EV is clearly positive.`;
+    } else if (overallRank < 5000000) {
+        rankUrgency = `RANK CONTEXT: Poor rank (${overallRank.toLocaleString()}). This manager needs to climb — be more aggressive. LOWER THE WILDCARD THRESHOLD: recommend Wildcard if 4+ starting XI players are out-of-form (form < 3), injured/doubtful, or have FDR ≥ 4. Hits of -4 or even -8 are acceptable if multiple high-EV players are unavailable. Do not play it safe — playing safe at this rank is itself the bad decision.`;
+    } else {
+        rankUrgency = `RANK CONTEXT: DISASTER ZONE — rank ${overallRank.toLocaleString()}. This team needs emergency surgery, not band-aids. WILDCARD IS THE DEFAULT RECOMMENDATION unless it has already been used — the squad is structurally broken and 2 free transfers will not fix it. If Wildcard is unavailable, recommend the maximum hits (-4, -8, even -12) justified by EV, and consider Free Hit if blanks are an issue. Do NOT play conservatively — conservative play at rank ${overallRank.toLocaleString()} is how you finish the season in the gutter.`;
+    }
+
     return `
 You are the **Fantasy Premier Wolf** — an elite, aggressive FPL strategist with zero tolerance for bad decisions.
 Analyse this team and produce a CONCRETE, EXECUTABLE plan for GW${(picks.entry_history?.event ?? 0) + 1}.
@@ -158,6 +192,10 @@ ${toneInstruction}
 
 **CURRENT SQUAD (positions 1-11 are starting XI, 12-15 are bench):**
 ${JSON.stringify(myPlayers, null, 2)}
+
+**SQUAD CLUB DISTRIBUTION (3-per-club rule):**
+${squadClubSummary}
+Any club marked "← AT LIMIT" means you already own 3 players from them and CANNOT bring in another unless you transfer one OUT first. Any target with ⛔ in club_rule is BLOCKED. Recalculate after each transfer in a multi-transfer plan.
 
 **FINANCES:**
 - Bank: £${bank}m
@@ -184,16 +222,18 @@ This manager has been profiled. Every recommendation — transfers, captain, hit
 
 **MANDATORY RULES — VIOLATIONS MAKE THE PLAN INVALID:**
 1. **Budget**: For each transfer, [buy_price] ≤ [sell_price of outgoing player] + [bank]. The bank updates after each transfer. DO THE MATHS.
-2. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD).
+2. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD). Use the SQUAD CLUB DISTRIBUTION above. For each proposed transfer IN, check the target's club headcount AFTER accounting for any transfers OUT from the same club earlier in the same plan. Any target marked ⛔ BLOCKED cannot be bought unless a player from that same club is transferred OUT first in the same plan — re-check after each move.
 3. **Blank GWs**: Do NOT recommend buying a player who has "No fixture (blank GW)" unless using Free Hit chip.
-4. **Hits**: Only recommend extra transfers (hits, -4pts each) if the expected gain clearly outweighs the cost. Justify explicitly.
-5. **Chip Logic**: Use strict thresholds — do not use vibes or general squad dissatisfaction:
-   - **Wildcard**: Only if 5+ starting XI players have FDR ≥ 4 in the next gameweek AND free transfers cannot fix the structural issues. Do not use Wildcard just because the squad is "poor".
+4. **Hits**: Calibrate to rank (see RANK CONTEXT above). For poor/disaster ranks, hits are a recovery tool, not a last resort — justify the EV but lean toward taking them.
+5. **Chip Logic**: Thresholds scale with rank (see RANK CONTEXT above for the specific threshold that applies to THIS manager):
+   - **Wildcard**: See RANK CONTEXT. For ranks > 5M, this is the DEFAULT recommendation if available. For ranks 1M–5M, lower threshold (4+ poor players). For ranks < 1M, require 5+ XI players with FDR ≥ 4.
    - **Free Hit**: Only if 5+ starting XI players have "No fixture (blank GW)" next gameweek.
    - **Bench Boost**: Only if at least 3 bench players have good fixtures (FDR ≤ 3) and are likely to start.
    - **Triple Captain**: Only if there is a standout player with a double gameweek or FDR ≤ 2 home fixture.
-   - If conditions are not met, chip = null. Do not force chips.
+   - If chip conditions are NOT met for this rank tier, chip = null. Do not force chips outside their criteria.
 6. **Feasibility**: Every player you recommend buying MUST appear in the TOP BUY TARGETS list above (since that is the only price data you have). Do not invent players.
+
+${rankUrgency}
 
 **OUTPUT FORMAT:**
 
@@ -225,6 +265,7 @@ Rules for the JSON:
 - Use EXACT web_name values from the squad/targets data above (copy-paste, do not paraphrase)
 - chip must be one of: null, "wildcard", "freehit", "bboost", "3xc"
 - If no transfers, use empty array []
+- **CRITICAL: If chip is "wildcard" or "freehit", the transfers array MUST NOT be empty.** Include your top priority player swaps (as many as the TOP BUY TARGETS list allows you to price accurately). A wildcard with zero transfers is invalid — pick the worst players in the squad and replace them with the best available targets within budget.
 - Output ONLY the JSON on that line, nothing else after the JSON
 ---END_WOLF_PLAN---
 `;

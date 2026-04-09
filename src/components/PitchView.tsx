@@ -7,6 +7,18 @@ import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEn
 
 
 import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
+
+let _quotesCache: { quote: string; author: string }[] | null = null;
+async function getRandomQuote() {
+    if (!_quotesCache) {
+        try {
+            const res = await fetch('/quotes.xml');
+            _quotesCache = await res.json();
+        } catch { _quotesCache = []; }
+    }
+    if (!_quotesCache?.length) return null;
+    return _quotesCache[Math.floor(Math.random() * _quotesCache.length)];
+}
 import { LoginModal } from './LoginModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -77,6 +89,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     // Search State
     const navigate = useNavigate();
+    const [teamReloadKey, setTeamReloadKey] = useState(0); // Incrementing this re-triggers the loadPicks useEffect
     const [searchMode, setSearchMode] = useState<'name' | 'team' | 'league' | 'fpl'>('name');
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -203,9 +216,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
+    const [loadingQuote, setLoadingQuote] = useState<{ quote: string; author: string } | null>(null);
     const [wolfPlan, setWolfPlan] = useState<WolfPlan | null>(null);
     const [isExecuting, setIsExecuting] = useState(false);
     const [executeResult, setExecuteResult] = useState<{ success: boolean; error?: string } | null>(null);
+    const [showFplLoginModal, setShowFplLoginModal] = useState(false);
+    const [showNotConnectedWarning, setShowNotConnectedWarning] = useState(false);
     const [news, setNews] = useState<NewsArticle[]>([]);
 
     // Fetch News on Mount
@@ -531,7 +547,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         return { picks: picksOrPublic, live, trans };
                     } catch (e: any) {
                         if (gw > currentGwId) {
-                            console.warn(`Picks for GW${gw} not available yet. Falling back to reconstruction.`);
+                            console.log(`[PitchView] Picks for GW${gw} not published yet — reconstructing from GW${currentGwId}.`);
                             try {
                                 const [prevPicks, live, trans] = await Promise.all([
                                     (currentGwId > 0 ? fetchEntryPicks(entryId, currentGwId) : Promise.resolve(null)),
@@ -546,7 +562,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         }
                         if (gw === currentGwId) {
                             const prevGw = Math.max(1, currentGwId - 1);
-                            console.warn(`Picks for current GW${gw} not available yet. Falling back to GW${prevGw}.`);
+                            console.log(`[PitchView] GW${gw} public picks not yet available — using GW${prevGw} for display.`);
                             try {
                                 const [prevPicks, live, trans] = await Promise.all([
                                     (prevGw > 0 ? fetchEntryPicks(entryId, prevGw) : Promise.resolve(null)),
@@ -640,7 +656,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         };
 
         loadPicks();
-    }, [entryId, selectedGw, currentGwId, isOwnTeam]);
+    }, [entryId, selectedGw, currentGwId, isOwnTeam, teamReloadKey]);
 
     // Reset flags when navigating to a different team
     useEffect(() => {
@@ -1047,6 +1063,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setIsAiLoading(true);
         setAiAnalysisText(null);
         setWolfPlan(null);
+        getRandomQuote().then(q => setLoadingQuote(q));
 
         try {
             const transfersMade = calculateTransfersMade(picksData, picksToUse);
@@ -1076,7 +1093,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             const planEnd = result.indexOf('---END_WOLF_PLAN---');
             let displayText = result;
             if (planStart !== -1 && planEnd !== -1) {
-                const jsonLine = result.slice(planStart + '---WOLF_PLAN_JSON---'.length, planEnd).trim();
+                let jsonLine = result.slice(planStart + '---WOLF_PLAN_JSON---'.length, planEnd).trim();
+                // Strip markdown code fences Gemini sometimes adds
+                jsonLine = jsonLine.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
                 displayText = result.slice(0, planStart).trim();
                 try {
                     const parsed = JSON.parse(jsonLine);
@@ -1085,6 +1104,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 } catch (e) {
                     console.warn('[Wolf] Failed to parse plan JSON:', jsonLine, e);
                 }
+            } else {
+                console.warn('[Wolf] No structured plan markers found in response');
             }
 
             setAiAnalysisText(displayText);
@@ -1117,7 +1138,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     };
 
     const handleExecutePlan = async () => {
-        if (!wolfPlan || !picksData || !data || !entryData || !token) return;
+        if (!picksData || !data || !entryData || !token) return;
+        if (!wolfPlan) {
+            setExecuteResult({ success: false, error: 'No structured plan available. The Wolf\'s plan could not be parsed from the analysis.' });
+            return;
+        }
 
         setIsExecuting(true);
         setExecuteResult(null);
@@ -1126,20 +1151,111 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             const nextGwId = data.events.find(e => e.is_next)?.id
                 ?? ((data.events.find(e => e.is_current)?.id ?? 0) + 1);
 
+            // Normalise chip — AI sometimes outputs the string "None" instead of null
+            const VALID_CHIPS = ['wildcard', 'freehit', 'bboost', '3xc'];
+            const chip = wolfPlan.chip && VALID_CHIPS.includes(wolfPlan.chip.toLowerCase())
+                ? wolfPlan.chip.toLowerCase() : null;
+
+            // Fetch live team to get ACTUAL selling prices (AI estimates may not match FPL exactly)
+            let sellingPriceMap: Record<number, number> = {};
+            if (fplConnected && token) {
+                try {
+                    const liveRes = await fetch('/api/fpl/my-picks', {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (liveRes.ok) {
+                        const liveData = await liveRes.json();
+                        for (const p of (liveData.picks || [])) {
+                            if (p.element && p.selling_price != null) {
+                                sellingPriceMap[p.element] = p.selling_price;
+                            }
+                        }
+                    }
+                } catch { /* proceed with AI prices as fallback */ }
+            }
+
             // 1. Submit transfers (includes chip activation)
-            if (wolfPlan.transfers.length > 0 || wolfPlan.chip) {
+            if (wolfPlan.transfers.length > 0 || chip) {
+                // --- Pre-flight validation ---
+                const currentSquadIds = new Set(picksData.picks.map(p => p.element));
+
+                // Build initial per-club count from current squad
+                const squadClubCount: Record<number, number> = {};
+                for (const p of picksData.picks) {
+                    const pl = data.elements.find(e => e.id === p.element);
+                    if (pl) squadClubCount[pl.team] = (squadClubCount[pl.team] ?? 0) + 1;
+                }
+
+                // Resolve all transfers — keep metadata needed for validation
+                type ResolvedTransfer = {
+                    element_in: number; element_out: number;
+                    purchase_price: number; selling_price: number;
+                    type_in: number; type_out: number;
+                    team_in: number; team_out: number;
+                };
+                const resolvedTransfers: ResolvedTransfer[] = wolfPlan.transfers.map(t => {
+                    const outPlayer = data.elements.find(e => e.web_name === t.out_name);
+                    const inPlayer = data.elements.find(e => e.web_name === t.in_name);
+                    if (!outPlayer || !inPlayer) {
+                        console.warn(`[Execute] Skipping unresolvable transfer: ${t.out_name} → ${t.in_name}`);
+                        return null;
+                    }
+                    const actualSellPrice = sellingPriceMap[outPlayer.id] ?? Math.round((t.sell_price ?? 0) * 10);
+                    return {
+                        element_in: inPlayer.id, element_out: outPlayer.id,
+                        purchase_price: inPlayer.now_cost, selling_price: actualSellPrice,
+                        type_in: inPlayer.element_type, type_out: outPlayer.element_type,
+                        team_in: inPlayer.team, team_out: outPlayer.team,
+                    };
+                }).filter(Boolean) as ResolvedTransfer[];
+
+                // Simulate transfers sequentially, enforcing all FPL API rules
+                const squadState = new Set(currentSquadIds);
+                const clubCount = { ...squadClubCount }; // mutable copy
+                const validTransfers: { element_in: number; element_out: number; purchase_price: number; selling_price: number }[] = [];
+                const allOutIds = new Set(resolvedTransfers.map(t => t.element_out));
+
+                for (const t of resolvedTransfers) {
+                    // Rule: element_out must be in the current evolving squad
+                    if (!squadState.has(t.element_out)) {
+                        console.warn(`[Execute] Skip — element_out ${t.element_out} not in squad`); continue;
+                    }
+                    // Rule: element_in must not already be in squad
+                    if (squadState.has(t.element_in)) {
+                        console.warn(`[Execute] Skip — element_in ${t.element_in} already in squad`); continue;
+                    }
+                    // Rule: circular transfer (player being brought in is also going out elsewhere)
+                    if (allOutIds.has(t.element_in)) {
+                        console.warn(`[Execute] Skip — circular transfer for element ${t.element_in}`); continue;
+                    }
+                    // Rule: position types must match
+                    if (Number(t.type_in) !== Number(t.type_out)) {
+                        console.warn(`[Execute] Skip — position mismatch: type_out=${t.type_out} type_in=${t.type_in}`); continue;
+                    }
+                    // Rule: element_in and element_out cannot be from the same club
+                    if (Number(t.team_in) === Number(t.team_out)) {
+                        console.warn(`[Execute] Skip — same club transfer (team=${t.team_in})`); continue;
+                    }
+                    // Rule: after applying, element_in's club must not exceed 3 players
+                    const inClubCountAfter = (clubCount[Number(t.team_in)] ?? 0) + 1;
+                    if (inClubCountAfter > 3) {
+                        console.warn(`[Execute] Skip — club limit: ${t.team_in} would have ${inClubCountAfter} players`); continue;
+                    }
+
+                    // All checks passed — apply this transfer to the evolving state
+                    validTransfers.push({ element_in: t.element_in, element_out: t.element_out, purchase_price: t.purchase_price, selling_price: t.selling_price });
+                    squadState.delete(t.element_out);
+                    squadState.add(t.element_in);
+                    clubCount[t.team_out] = Math.max(0, (clubCount[t.team_out] ?? 1) - 1);
+                    clubCount[t.team_in] = (clubCount[t.team_in] ?? 0) + 1;
+                }
+
+                console.log(`[Execute] ${resolvedTransfers.length} resolved → ${validTransfers.length} valid transfers after pre-flight`);
+
                 const transferPayload = {
-                    transfers: wolfPlan.transfers.map(t => {
-                        const outPlayer = data.elements.find(e => e.web_name === t.out_name);
-                        const inPlayer = data.elements.find(e => e.web_name === t.in_name);
-                        return {
-                            element_in: inPlayer?.id,
-                            element_out: outPlayer?.id,
-                            purchase_price: Math.round((t.buy_price ?? 0) * 10),
-                            selling_price: Math.round((t.sell_price ?? 0) * 10),
-                        };
-                    }).filter(t => t.element_in && t.element_out),
-                    chip: wolfPlan.chip || null,
+                    confirmed: true,
+                    transfers: validTransfers,
+                    chip,
                     entry: entryData.id,
                     event: nextGwId,
                 };
@@ -1152,7 +1268,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
-                    throw new Error(err.detail || err.non_field_errors?.[0] || err.error || `Transfer failed (${res.status})`);
+                    console.error('[Execute] Transfer 400 body:', JSON.stringify(err));
+                    const msg = err.detail || err.non_field_errors?.[0] || (Array.isArray(err) ? JSON.stringify(err) : null) || err.error || `Transfer failed (${res.status})`;
+                    throw new Error(msg);
                 }
             }
 
@@ -1189,6 +1307,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             }
 
             setExecuteResult({ success: true });
+            // Reload team data to reflect the changes just applied
+            hasLivePicksRef.current = false;
+            setTeamReloadKey(k => k + 1);
+            // Close the modal after a short delay so the user sees the success message
+            setTimeout(() => setShowAnalysis(false), 2000);
         } catch (err: any) {
             setExecuteResult({ success: false, error: err.message });
         } finally {
@@ -1276,6 +1399,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     const handleAnalyze = () => {
         if (!picksData || !entryData) return;
+
+        // Warn Co-Pilot & Autopilot users if not connected to their FPL team
+        const tier = user?.membership_tier ?? 1;
+        if (tier >= 2 && !fplConnected) {
+            setShowNotConnectedWarning(true);
+            return;
+        }
 
         // Initialize Edit Mode with current picks (deep copy to avoid mutating original state)
         setEditedPicks(JSON.parse(JSON.stringify(picksData)));
@@ -1852,9 +1982,15 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
                         {/* Gemini Loading / Result */}
                         {isAiLoading && (
-                            <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-4">
+                            <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-6">
                                 <Loader2 className="animate-spin w-8 h-8" />
                                 <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Summoning the Wolf...</span>
+                                {loadingQuote && (
+                                    <div className="max-w-sm text-center space-y-2 animate-in fade-in duration-700">
+                                        <p className="text-white/60 text-sm italic leading-relaxed">"{loadingQuote.quote}"</p>
+                                        <p className="text-[#02efff]/60 text-xs font-semibold">— {loadingQuote.author}</p>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1875,7 +2011,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <div className="p-5 space-y-4">
                                     {/* Transfers */}
                                     {wolfPlan.transfers.length === 0 ? (
-                                        <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
+                                        wolfPlan.chip === 'wildcard' || wolfPlan.chip === 'freehit' ? (
+                                            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 space-y-1">
+                                                <p className="text-yellow-300 text-sm font-bold">🃏 {wolfPlan.chip === 'wildcard' ? 'Wildcard' : 'Free Hit'} — rebuild your squad manually</p>
+                                                <p className="text-white/60 text-xs leading-relaxed">The Wolf wants you to use your {wolfPlan.chip === 'wildcard' ? 'Wildcard' : 'Free Hit'} to overhaul the squad, but couldn't specify every replacement in one plan. Head to fantasy.premierleague.com to rebuild your full squad, then use the chip there.</p>
+                                            </div>
+                                        ) : (
+                                            <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
+                                        )
                                     ) : (
                                         <div className="space-y-2">
                                             <div className="text-white/40 text-xs uppercase font-bold tracking-widest mb-2">Transfers</div>
@@ -1910,10 +2053,33 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     </div>
 
                                     {/* Execute button */}
-                                    {executeResult?.success ? (
+                                    {/* If wildcard/freehit with no transfers — redirect to FPL website instead of a broken execute */}
+                                    {wolfPlan.chip && ['wildcard', 'freehit'].includes(wolfPlan.chip) && wolfPlan.transfers.length === 0 ? (
+                                        <a
+                                            href="https://fantasy.premierleague.com/"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-black text-sm rounded-xl uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-yellow-500/20"
+                                        >
+                                            🌐 Rebuild Squad on FPL Website
+                                        </a>
+                                    ) : executeResult?.success ? (
                                         <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
-                                            ✓ Plan Applied to FPL
+                                            ✓ Execution Successful!
                                         </div>
+                                    ) : !fplConnected ? (
+                                        <button
+                                            onClick={() => {
+                                                if (fplEntryId) {
+                                                    window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: localStorage.getItem('token') } }));
+                                                } else {
+                                                    setShowFplLoginModal(true);
+                                                }
+                                            }}
+                                            className="w-full py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 font-black text-sm rounded-xl uppercase tracking-widest transition-all border border-yellow-500/30 flex items-center justify-center gap-2"
+                                        >
+                                            🔗 Connect FPL to Execute
+                                        </button>
                                     ) : (
                                         <>
                                             {executeResult?.error && (
@@ -1955,6 +2121,43 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 >
                                     {aiAnalysisText}
                                 </ReactMarkdown>
+                            </div>
+                        )}
+
+                        {/* Fallback Execute button when wolfPlan wasn't parsed */}
+                        {aiAnalysisText && !isAiLoading && !wolfPlan && (
+                            <div className="space-y-2">
+                                {executeResult?.success ? (
+                                    <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
+                                        ✓ Execution Successful!
+                                    </div>
+                                ) : !fplConnected ? (
+                                    <button
+                                        onClick={() => {
+                                            if (fplEntryId) {
+                                                window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: localStorage.getItem('token') } }));
+                                            } else {
+                                                setShowFplLoginModal(true);
+                                            }
+                                        }}
+                                        className="w-full py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 font-black text-sm rounded-xl uppercase tracking-widest transition-all border border-yellow-500/30 flex items-center justify-center gap-2"
+                                    >
+                                        🔗 Connect FPL to Execute
+                                    </button>
+                                ) : (
+                                    <>
+                                        {executeResult?.error && (
+                                            <p className="text-red-400 text-xs text-center">{executeResult.error}</p>
+                                        )}
+                                        <button
+                                            onClick={handleExecutePlan}
+                                            disabled={isExecuting}
+                                            className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
+                                        >
+                                            {isExecuting ? <><Loader2 size={15} className="animate-spin" /> Applying...</> : '⚡ Execute Plan'}
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
 
@@ -2700,6 +2903,92 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </div>
             )}
             {renderAnalysisModal()}
+
+            {/* Not Connected Warning (tier 2/3) */}
+            {showNotConnectedWarning && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+                    <div className="bg-slate-900 border border-yellow-500/30 rounded-2xl p-8 max-w-sm w-full space-y-5 text-center shadow-2xl">
+                        <div className="w-12 h-12 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center justify-center mx-auto">
+                            <AlertTriangle className="text-yellow-400 w-6 h-6" />
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-white font-black text-lg">FPL Account Not Connected</h3>
+                            <p className="text-gray-400 text-sm leading-relaxed">
+                                Your {user?.membership_tier === 3 ? 'Autopilot' : 'Co-Pilot'} tier includes automatic transfer execution — but your FPL account isn't connected. Connect first to get the full experience.
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => {
+                                    if (fplEntryId) {
+                                        // Try reconnect via extension; if no token, fall back to FPL site
+                                        const onResult = (e: Event) => {
+                                            window.removeEventListener('fpw-reconnect-result', onResult);
+                                            const detail = (e as CustomEvent).detail;
+                                            if (!detail?.ok) {
+                                                window.open('https://fantasy.premierleague.com/', '_blank');
+                                            }
+                                        };
+                                        window.addEventListener('fpw-reconnect-result', onResult);
+                                        // Clean up listener if extension doesn't respond
+                                        setTimeout(() => window.removeEventListener('fpw-reconnect-result', onResult), 10000);
+                                        window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: localStorage.getItem('token') } }));
+                                        setShowNotConnectedWarning(false);
+                                    } else {
+                                        window.open('https://fantasy.premierleague.com/', '_blank');
+                                        setShowNotConnectedWarning(false);
+                                    }
+                                }}
+                                className="w-full py-3 bg-fpl-green text-slate-900 font-black text-sm uppercase tracking-widest rounded-xl hover:bg-fpl-green/90 transition-all"
+                            >
+                                {fplEntryId ? 'Reconnect FPL Account' : 'Log in to FPL'}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowNotConnectedWarning(false);
+                                    setEditedPicks(JSON.parse(JSON.stringify(picksData)));
+                                    setIsEditingTeam(true);
+                                }}
+                                className="w-full py-2 text-gray-500 hover:text-gray-300 text-sm transition-colors"
+                            >
+                                Continue anyway
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* FPL Login Modal */}
+            {showFplLoginModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 max-w-sm w-full space-y-5 text-center shadow-2xl">
+                        <div className="w-12 h-12 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center justify-center mx-auto">
+                            <span className="text-2xl">🔗</span>
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-white font-black text-lg">Connect Your FPL Account</h3>
+                            <p className="text-gray-400 text-sm leading-relaxed">
+                                Log in to your <span className="text-white font-semibold">{entryData?.name ?? 'FPL team'}</span> on{' '}
+                                <span className="text-fpl-green">fantasy.premierleague.com</span>, then return here to execute the plan.
+                            </p>
+                        </div>
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => { window.open('https://fantasy.premierleague.com/', '_blank'); setShowFplLoginModal(false); }}
+                                className="w-full py-3 bg-fpl-green text-slate-900 font-black text-sm uppercase tracking-widest rounded-xl hover:bg-fpl-green/90 transition-all"
+                            >
+                                Open fantasy.premierleague.com
+                            </button>
+                            <button
+                                onClick={() => setShowFplLoginModal(false)}
+                                className="w-full py-2 text-gray-500 hover:text-gray-300 text-sm transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
