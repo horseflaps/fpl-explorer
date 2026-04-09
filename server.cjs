@@ -179,7 +179,7 @@ app.post('/api/auth/login', (req, res) => {
         }
 
         const token = jwt.sign({ id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1 }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1 } });
+        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1, credits: user.credits ?? 1, manager_dna: user.manager_dna || null } });
     });
 });
 
@@ -838,18 +838,18 @@ app.post('/api/fpl/set-captain', async (req, res) => {
         if (!teamRes.ok) return res.status(teamRes.status).json({ error: 'Failed to fetch current team' });
         const teamData = await teamRes.json();
 
-        // Update captain/VC flags
+        // Update captain/VC flags (mutually exclusive per player)
         const updatedPicks = teamData.picks.map(p => ({
             element: p.element,
             position: p.position,
-            is_captain: role === 'captain' ? p.element === element : p.is_captain && p.element !== element,
-            is_vice_captain: role === 'vice_captain' ? p.element === element : p.is_vice_captain && p.element !== element,
+            is_captain: role === 'captain' ? p.element === element : (p.is_captain && p.element !== element),
+            is_vice_captain: role === 'vice_captain' ? p.element === element : (p.is_vice_captain && p.element !== element && !(role === 'captain' && p.element === element)),
         }));
 
         const updateRes = await fetch(`https://fantasy.premierleague.com/api/my-team/${row.fpl_entry_id}/`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ picks: updatedPicks, chips: null }),
+            body: JSON.stringify({ picks: updatedPicks, chip: null }),
         });
 
         const updateBody = await updateRes.json();

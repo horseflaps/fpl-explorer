@@ -17,9 +17,13 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => {
+        // Only show quiz if verified, FPL connected, and no DNA set yet
         if (isVerified && fplConnected && user && !user.manager_dna) {
             const timer = setTimeout(() => setShowDNAQuiz(true), 1500);
             return () => clearTimeout(timer);
+        } else {
+            // Hide immediately if DNA is now available (handles race with async profile load)
+            setShowDNAQuiz(false);
         }
     }, [isVerified, fplConnected, user?.manager_dna]);
 
