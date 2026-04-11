@@ -21,6 +21,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-prod';
 // Per-user FPL token validation cache { [userId]: { valid: bool, at: timestamp } }
 const fplValidationCache = {};
 
+// Bootstrap-static cache — refresh every 5 minutes, serve stale on FPL API errors
+let bootstrapCache = null;  // { data: Object, at: number }
+const BOOTSTRAP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -1166,6 +1170,42 @@ app.get('/api/fixtures/tv', async (req, res) => {
     } catch (e) {
         console.error('[TV] Error:', e.message);
         res.status(500).json({ error: 'Failed to fetch broadcast data' });
+    }
+});
+
+// Bootstrap-static with cache + stale-on-error fallback
+app.get('/api/bootstrap-static/', async (req, res) => {
+    const now = Date.now();
+    // Serve from cache if still fresh
+    if (bootstrapCache && (now - bootstrapCache.at) < BOOTSTRAP_TTL_MS) {
+        return res.json(bootstrapCache.data);
+    }
+    try {
+        const response = await fetch('https://fantasy.premierleague.com/api/bootstrap-static/', {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
+                'Accept': 'application/json',
+            },
+        });
+        if (!response.ok) {
+            // FPL API is unhappy — serve stale cache if we have one, otherwise propagate the error
+            if (bootstrapCache) {
+                console.warn(`[Bootstrap] FPL returned ${response.status} — serving stale cache (age: ${Math.round((now - bootstrapCache.at) / 1000)}s)`);
+                return res.json(bootstrapCache.data);
+            }
+            return res.status(response.status).json({ error: `FPL API Error: ${response.status}`, details: response.statusText });
+        }
+        const data = await response.json();
+        bootstrapCache = { data, at: now };
+        res.json(data);
+    } catch (error) {
+        // Network error — serve stale cache if available
+        if (bootstrapCache) {
+            console.warn(`[Bootstrap] Fetch error (${error.message}) — serving stale cache (age: ${Math.round((now - bootstrapCache.at) / 1000)}s)`);
+            return res.json(bootstrapCache.data);
+        }
+        console.error('[Bootstrap] Fatal fetch error and no cache:', error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 

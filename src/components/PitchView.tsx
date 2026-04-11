@@ -217,6 +217,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
     const [loadingQuote, setLoadingQuote] = useState<{ quote: string; author: string } | null>(null);
+    const [quoteVisible, setQuoteVisible] = useState(true);
     const [wolfPlan, setWolfPlan] = useState<WolfPlan | null>(null);
     const [isExecuting, setIsExecuting] = useState(false);
     const [executeResult, setExecuteResult] = useState<{ success: boolean; error?: string; skipped?: string[]; invalidPlan?: string[] } | null>(null);
@@ -279,6 +280,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const isOwnTeam = !!(fplConnected && fplEntryId && entryId === fplEntryId);
     const hasLivePicksRef = useRef(false);
     const failedKeyRef = useRef<string | null>(null);
+    const quoteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const currentGwId = useMemo(() => data.events.find(e => e.is_current)?.id || 0, [data.events]);
     const nextGwId = useMemo(() => data.events.find(e => e.is_next)?.id || currentGwId, [data.events, currentGwId]);
     const [fixturesGw, setFixturesGw] = useState<number | null>(null);
@@ -1073,7 +1075,15 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setIsAiLoading(true);
         setAiAnalysisText(null);
         setWolfPlan(null);
+        setExecuteResult(null);
+        setQuoteVisible(true);
         getRandomQuote().then(q => setLoadingQuote(q));
+        quoteIntervalRef.current = setInterval(() => {
+            setQuoteVisible(false);
+            setTimeout(() => {
+                getRandomQuote().then(q => { setLoadingQuote(q); setQuoteVisible(true); });
+            }, 800);
+        }, 15000);
 
         try {
             const transfersMade = calculateTransfersMade(picksData, picksToUse);
@@ -1102,7 +1112,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             // If a plan was just executed, that takes priority over the previous recommendation
             const prevPlan = lastExecutedPlan ? null : lastRecommendedPlan;
-            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null, lastExecutedPlan, transfers, prevPlan);
+            const activeChipNow = picksToUse.active_chip ?? null;
+            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null, lastExecutedPlan, transfers, prevPlan, activeChipNow);
             setLastExecutedPlan(null); // consume — only warn once per execute
             const result = await fetchGeminiAnalysis(prompt);
 
@@ -1110,9 +1121,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             let displayText = result;
             const tryParsePlan = (jsonStr: string): any | null => {
                 try {
-                    // Strip markdown fences, collapse whitespace
-                    const clean = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').replace(/\n\s*/g, ' ').trim();
-                    return JSON.parse(clean);
+                    // Strip markdown fences, collapse internal whitespace/newlines
+                    const clean = jsonStr
+                        .replace(/^```(?:json)?\s*/i, '')
+                        .replace(/\s*```\s*$/, '')
+                        .replace(/\n\s*/g, ' ')
+                        .trim();
+                    const obj = JSON.parse(clean);
+                    // Must have a transfers array to be a valid wolf plan
+                    if (!obj || !Array.isArray(obj.transfers)) return null;
+                    return obj;
                 } catch { return null; }
             };
 
@@ -1127,17 +1145,36 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 parsed = tryParsePlan(between);
             }
 
-            // Strategy 2: find the last {...} JSON blob in the response (fallback)
+            // Strategy 2: find last {...} containing "transfers" — handles { "transfers" with space
             if (!parsed) {
                 const lastBrace = result.lastIndexOf('}');
                 if (lastBrace !== -1) {
-                    const firstBrace = result.lastIndexOf('{"transfers"', lastBrace);
-                    if (firstBrace !== -1) {
-                        parsed = tryParsePlan(result.slice(firstBrace, lastBrace + 1));
-                        if (parsed) displayText = result.slice(0, firstBrace).trim();
+                    // Search for opening brace of an object containing "transfers"
+                    const transfersIdx = result.lastIndexOf('"transfers"', lastBrace);
+                    if (transfersIdx !== -1) {
+                        // Walk backwards from "transfers" to find the opening {
+                        let openBrace = -1;
+                        for (let i = transfersIdx - 1; i >= 0; i--) {
+                            if (result[i] === '{') { openBrace = i; break; }
+                        }
+                        if (openBrace !== -1) {
+                            parsed = tryParsePlan(result.slice(openBrace, lastBrace + 1));
+                            if (parsed) displayText = result.slice(0, openBrace).trim();
+                        }
                     }
                 }
             }
+
+            // Strategy 3: regex — find anything that looks like a JSON object with transfers key
+            if (!parsed) {
+                const match = result.match(/(\{[\s\S]*?"transfers"[\s\S]*?\})\s*$/);
+                if (match) {
+                    parsed = tryParsePlan(match[1]);
+                    if (parsed) displayText = result.slice(0, result.lastIndexOf(match[1])).trim();
+                }
+            }
+
+            if (!parsed) console.warn('[Wolf] Could not parse plan from response. Raw tail:', result.slice(-300));
 
             if (parsed) {
                 setWolfPlan(parsed);
@@ -1147,8 +1184,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 if (entryData?.id) {
                     try { localStorage.setItem(`wolf_last_plan_${entryData.id}`, JSON.stringify(planToSave)); } catch {}
                 }
-            } else {
-                console.warn('[Wolf] Could not parse plan from response');
             }
 
             setAiAnalysisText(displayText);
@@ -1177,6 +1212,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             setAiAnalysisText(`Error: ${error.message || 'Unknown error occurred'}`);
         } finally {
             setIsAiLoading(false);
+            if (quoteIntervalRef.current) { clearInterval(quoteIntervalRef.current); quoteIntervalRef.current = null; }
         }
     };
 
@@ -1196,8 +1232,16 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             // Normalise chip — AI sometimes outputs the string "None" instead of null
             const VALID_CHIPS = ['wildcard', 'freehit', 'bboost', '3xc'];
-            const chip = wolfPlan.chip && VALID_CHIPS.includes(wolfPlan.chip.toLowerCase())
+            const rawChip = wolfPlan.chip && VALID_CHIPS.includes(wolfPlan.chip.toLowerCase())
                 ? wolfPlan.chip.toLowerCase() : null;
+            // If a chip is already active FPL requires we keep sending it in the payload —
+            // sending null is treated as "cancel chip" which the API rejects.
+            // Check all three sources — picksData.active_chip is often null even when a chip is live.
+            const currentActiveChip = picksData?.active_chip
+                || (picksData as any)?._transfers?.active_chip
+                || chips.find((c: any) => c.status_for_entry === 'active')?.name
+                || null;
+            const chip = currentActiveChip ?? rawChip;
 
             // Fetch live team to get ACTUAL selling prices (AI estimates may not match FPL exactly)
             let sellingPriceMap: Record<number, number> = {};
@@ -1238,9 +1282,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     type_in: number; type_out: number;
                     team_in: number; team_out: number;
                 };
+                // For name lookups, build a squad-member set so we can prioritise
+                // finding the squad's own player when multiple FPL elements share a web_name.
+                const squadElementIds = new Set(picksData.picks.map(p => p.element));
+
                 const resolvedTransfers: ResolvedTransfer[] = wolfPlan.transfers.map(t => {
-                    const outPlayer = data.elements.find(e => e.web_name === t.out_name);
-                    const inPlayer = data.elements.find(e => e.web_name === t.in_name);
+                    // Outgoing: must be in the squad — search squad members first to avoid
+                    // matching a different player who happens to share the same web_name.
+                    const outPlayer = data.elements.find(e => e.web_name === t.out_name && squadElementIds.has(e.id))
+                        ?? data.elements.find(e => e.web_name === t.out_name);
+                    // Incoming: must NOT be in the squad already.
+                    const inPlayer = data.elements.find(e => e.web_name === t.in_name && !squadElementIds.has(e.id))
+                        ?? data.elements.find(e => e.web_name === t.in_name);
                     if (!outPlayer || !inPlayer) {
                         console.warn(`[Execute] Skipping unresolvable transfer: ${t.out_name} → ${t.in_name}`);
                         return null;
@@ -1255,6 +1308,10 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 }).filter(Boolean) as ResolvedTransfer[];
 
                 const posLabel = ['?', 'GKP', 'DEF', 'MID', 'FWD'];
+
+                // squadState is needed both in the re-pairing loop (auto-substitution) and
+                // in the sequential validation loop below — declare it here so both can use it.
+                const squadState = new Set(currentSquadIds);
 
                 // Auto-fix position mismatches by re-pairing transfers by position type.
                 // Groups all OUTs by their position and all INs by their position, then pairs
@@ -1320,7 +1377,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 }
 
                 // Simulate transfers sequentially, enforcing all FPL API rules
-                const squadState = new Set(currentSquadIds);
                 const clubCount = { ...squadClubCount }; // mutable copy
                 const allOutIds = new Set(repairedTransfers.map(t => t.element_out));
 
@@ -2101,8 +2157,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-6">
                                 <Loader2 className="animate-spin w-8 h-8" />
                                 <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Summoning the Wolf...</span>
+                                <span className="text-white/30 text-xs">Typically less than 60 seconds</span>
                                 {loadingQuote && (
-                                    <div className="max-w-sm text-center space-y-2 animate-in fade-in duration-700">
+                                    <div
+                                        className="max-w-sm text-center space-y-2"
+                                        style={{ transition: 'opacity 0.8s ease', opacity: quoteVisible ? 1 : 0 }}
+                                    >
                                         <p className="text-white/60 text-sm italic leading-relaxed">"{loadingQuote.quote}"</p>
                                         <p className="text-[#02efff]/60 text-xs font-semibold">— {loadingQuote.author}</p>
                                     </div>
@@ -2160,7 +2220,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         </div>
                                         <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
                                             <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Chip</div>
-                                            <div className="text-yellow-400 font-black text-sm capitalize">{wolfPlan.chip ?? 'None'}</div>
+                                            {(() => {
+                                                const activeNow = picksData?.active_chip ?? null;
+                                                if (!wolfPlan.chip && activeNow === 'wildcard') return <div className="text-[#00ff87] font-black text-xs">🃏 Wildcard Active</div>;
+                                                if (!wolfPlan.chip && activeNow === 'freehit') return <div className="text-[#00ff87] font-black text-xs">🎯 Free Hit Active</div>;
+                                                return <div className="text-yellow-400 font-black text-sm capitalize">{wolfPlan.chip ?? 'None'}</div>;
+                                            })()}
                                         </div>
                                         <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
                                             <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Bank After</div>
@@ -2541,36 +2606,28 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 {(() => {
                     const activeChip = picksData?.active_chip
                         || (picksData as any)?._transfers?.active_chip
-                        || (chips.find((c: any) => ['wildcard','freehit'].includes(c.name) && c.status_for_entry === 'active')?.name)
+                        || chips.find((c: any) => c.status_for_entry === 'active')?.name
                         || null;
-                    if (activeChip && ['wildcard', 'freehit'].includes(activeChip)) {
-                        return (
-                            <div className="flex flex-col items-center justify-center p-4 bg-[#00ff87]/10 rounded-xl border border-[#00ff87]/50 shadow-[0_0_20px_rgba(0,255,135,0.15)]">
-                                <div className="text-[#00ff87] font-black text-lg tracking-tight leading-tight text-center">
-                                    {activeChip === 'wildcard' ? '🃏 WILDCARD' : '🎯 FREE HIT'}
-                                </div>
-                                <div className="text-[#00ff87]/70 text-[10px] uppercase font-black tracking-widest mt-1">Active</div>
-                            </div>
-                        );
+                    const chipActive = activeChip && ['wildcard', 'freehit'].includes(activeChip);
+                    let transfersUsed = 0;
+                    if (isEditingTeam && editedPicks && picksData) {
+                        picksData.picks.forEach((originalPick, index) => {
+                            const currentPick = editedPicks.picks[index];
+                            const isGhost = ghostPlayerIds.includes(currentPick.element);
+                            const isReplaced = currentPick.element !== originalPick.element;
+                            if (isGhost || isReplaced) transfersUsed++;
+                        });
                     }
+                    const transfersLeft = Math.max(0, availableTransfers - transfersUsed);
                     return (
-                    <div className="flex flex-col items-center justify-center p-4 bg-white/5 rounded-xl border border-white/10 group hover:border-[#02efff]/30 transition-all hover:bg-[#02efff]/5">
-                        <div className="text-white font-black text-2xl italic tracking-tighter group-hover:scale-110 transition-transform">
-                            {(() => {
-                                let transfersUsed = 0;
-                                if (isEditingTeam && editedPicks && picksData) {
-                                    picksData.picks.forEach((originalPick, index) => {
-                                        const currentPick = editedPicks.picks[index];
-                                        const isGhost = ghostPlayerIds.includes(currentPick.element);
-                                        const isReplaced = currentPick.element !== originalPick.element;
-                                        if (isGhost || isReplaced) transfersUsed++;
-                                    });
-                                }
-                                return Math.max(0, availableTransfers - transfersUsed);
-                            })()}
+                        <div className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all ${chipActive ? 'bg-white/3 border-white/5 opacity-30' : 'bg-white/5 border-white/10 group hover:border-[#02efff]/30 hover:bg-[#02efff]/5'}`}>
+                            <div className={`font-black text-2xl italic tracking-tighter ${chipActive ? 'text-white/40' : 'text-white group-hover:scale-110 transition-transform'}`}>
+                                {transfersLeft}
+                            </div>
+                            <div className={`text-[10px] uppercase font-black tracking-widest mt-1 ${chipActive ? 'text-white/20' : 'text-white/40 group-hover:text-[#02efff]/60 transition-colors'}`}>
+                                Transfers →
+                            </div>
                         </div>
-                        <div className="text-white/40 text-[10px] uppercase font-black tracking-widest mt-1 group-hover:text-[#02efff]/60 transition-colors">Transfers →</div>
-                    </div>
                     );
                 })()}
             </div>
@@ -2633,7 +2690,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             {displayChips.map((chip: any) => {
                                 const meta = CHIP_META[chip.name];
                                 if (!meta) return null;
-                                const isActive = picksData?.active_chip === chip.name;
+                                const activeChipNow = picksData?.active_chip
+                                    || (picksData as any)?._transfers?.active_chip
+                                    || chips.find((c: any) => c.status_for_entry === 'active')?.name
+                                    || null;
+                                const isActive = activeChipNow === chip.name;
                                 const isAvailable = chip.status_for_entry === 'available';
                                 const usedGw = chip.played_by_entry?.[0] ?? null;
                                 return (
@@ -2641,7 +2702,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         key={chip.id ?? chip.name}
                                         className={`relative flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center
                                             ${isActive
-                                                ? 'border-[#00ff87] bg-[#00ff87]/10 shadow-[0_0_15px_rgba(0,255,135,0.2)]'
+                                                ? 'border-[#00ff87] bg-[#00ff87]/15 shadow-[0_0_25px_rgba(0,255,135,0.4)] scale-105'
                                                 : isAvailable
                                                     ? 'border-white/20 bg-white/5 hover:border-white/40'
                                                     : 'border-white/10 bg-white/3 opacity-50'

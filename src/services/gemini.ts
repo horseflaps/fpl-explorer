@@ -50,7 +50,8 @@ export const generateGeminiPrompt = (
     managerDna: string | null = null,
     recentlyExecuted: { transfers: { out_name: string; in_name: string }[]; chip: string | null } | null = null,
     transferHistory: { element_in: number; element_out: number; event: number }[] = [],
-    lastRecommendedPlan: { transfers: { out_name: string; in_name: string }[]; chip: string | null; captain?: string } | null = null
+    lastRecommendedPlan: { transfers: { out_name: string; in_name: string }[]; chip: string | null; captain?: string } | null = null,
+    activeChip: string | null = null
 ): string => {
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
@@ -111,7 +112,6 @@ ${scheduleLines.join('\n')}
         const player = getPlayer(p.element);
         const team = player ? getTeam(player.team) : null;
         if (!player || !team) return null;
-        const fix = fixtureByTeam[player.team]?.join(' & ') || 'No fixture (blank GW)';
         // Build multi-GW fixture summary for this player (shows DGWs clearly)
         const multiFixture = gwRange.map(gw => {
             const gwFix = fixtureByTeamGw[player.team]?.[gw] ?? [];
@@ -244,29 +244,32 @@ ${scheduleLines.join('\n')}
         .filter(t => t.event >= currentEvent - 2 && t.event <= currentEvent)
         .sort((a, b) => b.event - a.event);
 
-    const recentInIds = new Set(recentTransfers.map(t => t.element_in));
-
     // Previous recommended plan context (prevents oscillation on consecutive unexecuted analyses)
     const prevPlanContext = lastRecommendedPlan && lastRecommendedPlan.transfers.length > 0
-        ? `**PREVIOUS WOLF RECOMMENDATION (not yet executed by the manager):**
+        ? `**YOUR PREVIOUS RECOMMENDATION (not yet executed — the manager is still deciding):**
 ${lastRecommendedPlan.transfers.map(t => `  • ${t.out_name} OUT → ${t.in_name} IN`).join('\n')}
 ${lastRecommendedPlan.chip ? `  Chip: ${lastRecommendedPlan.chip}` : ''}
 ${lastRecommendedPlan.captain ? `  Captain: ${lastRecommendedPlan.captain}` : ''}
 
-⚠️ The manager has seen this plan and NOT yet acted on it. Do NOT simply reverse it. If you still agree with it, REPEAT it or refine it. Only recommend different players if there is a clear new reason (injury, blank GW, significantly better alternative). Oscillating — recommending OUT then IN then OUT again — destroys trust and is incoherent strategy. Be consistent.
+**CONSISTENCY PRINCIPLE:** You made those recommendations because you assessed each outgoing player as a weak link — poor fixture, bad form, injury risk, or poor value. Your assessment of a player's quality does not change between analyses unless something material has happened (new injury, surprise result, fixture change, price shift). If you thought a player was worth dropping an hour ago, you should still think so now unless you can point to a specific change. Flip-flopping your opinion on the same players across consecutive analyses means your original reasoning was wrong — own it and stay consistent, or explain precisely what changed and why it matters.
 
 `
         : '';
 
-    const recentTransferContext = recentTransfers.length > 0
-        ? `**RECENT TRANSFER HISTORY (last 3 GWs — these were deliberate decisions):**
-${recentTransfers.map(t => {
+    const recentTransfers3 = recentTransfers.slice(0, 12); // cap at 12 to avoid prompt bloat
+    const recentlyBoughtIn  = recentTransfers3.map(t => getPlayer(t.element_in)?.web_name  ?? String(t.element_in));
+    const recentlySoldOut   = recentTransfers3.map(t => getPlayer(t.element_out)?.web_name ?? String(t.element_out));
+    const recentTransferContext = recentTransfers3.length > 0
+        ? `**RECENT TRANSFER HISTORY (last 3 GWs — your own deliberate decisions):**
+${recentTransfers3.map(t => {
     const pIn = getPlayer(t.element_in);
     const pOut = getPlayer(t.element_out);
     return `  GW${t.event}: ${pOut?.web_name ?? t.element_out} OUT → ${pIn?.web_name ?? t.element_in} IN`;
 }).join('\n')}
 
-⚠️ Players brought in within the last 3 GWs were DELIBERATE choices. Do NOT recommend transferring them out unless they are injured, suspended, or have a compelling fixture/form reason that outweighs the recency of the decision. Oscillating a player in and out across consecutive analyses is incoherent — avoid it.
+Your consistency as an analyst depends on standing by these calls:
+- ${recentlyBoughtIn.join(', ')} were brought in as deliberate upgrades. Do NOT recommend dropping them unless they are injured, suspended, or their form/fixtures have materially deteriorated.
+- ${recentlySoldOut.join(', ')} were sold for a reason — poor form, bad fixtures, or poor value. Do NOT recommend buying them back unless something has concretely changed (new role, fixture swing, price drop that changes value). Simply forgetting why you sold them is not a reason.
 
 `
         : '';
@@ -280,10 +283,14 @@ ${toneInstruction}
 - Team: ${teamName} | Manager: ${managerName}
 - Overall Rank: ${overallRank.toLocaleString()} | Total Points: ${totalPoints} | GW Points: ${gwPoints}
 
-${recentlyExecuted ? `⚠️ **PLAN JUST EXECUTED — DO NOT REVERSE:**
-The following transfers were applied to this squad moments ago by the user. These players are the INTENDED squad. Do NOT suggest transferring any of them out. Build forward from this team, not backwards.
+${recentlyExecuted && recentlyExecuted.transfers.length > 0 ? `⚠️ **PLAN JUST EXECUTED MOMENTS AGO — YOUR OWN DECISIONS:**
 ${recentlyExecuted.chip ? `Chip activated: ${recentlyExecuted.chip}` : ''}
-${recentlyExecuted.transfers.map(t => `  • ${t.out_name} → ${t.in_name} (${t.in_name} was JUST brought in — keep them)`).join('\n')}
+${recentlyExecuted.transfers.map(t => `  • ${t.out_name} OUT → ${t.in_name} IN`).join('\n')}
+
+You made these calls. Your reasoning for each:
+- Players you transferred OUT (${recentlyExecuted.transfers.map(t => t.out_name).join(', ')}): you assessed them as weak links — poor form, bad fixture, or poor value. That assessment does not expire in 5 minutes. Do NOT recommend bringing any of them back in.
+- Players you transferred IN (${recentlyExecuted.transfers.map(t => t.in_name).join(', ')}): you chose these as upgrades. Do NOT recommend dropping them already — they haven't even played yet.
+Build forward from this squad. Reversing your own decisions immediately is incoherent.
 
 ` : ''}**CURRENT SQUAD (positions 1-11 are starting XI, 12-15 are bench):**
 (last_gw_pts = actual points scored in the most recently completed gameweek — weigh this heavily before recommending a transfer out. A player who scored 10+ last GW should have a compelling reason to leave.)
@@ -299,6 +306,24 @@ Any club marked "← AT LIMIT" means you already own 3 players from them and CAN
 - Taking a hit costs 4 points per additional transfer
 - Chips Used: ${chipsUsedNames}
 - **Chips Still Available: ${availableChipNames}**
+${activeChip === 'wildcard' ? `
+🃏 **WILDCARD IS ACTIVE THIS GAMEWEEK — FULL REBUILD MODE:**
+The manager's Wildcard chip is already activated and live RIGHT NOW. This means:
+- ALL transfers are FREE — zero hit penalties regardless of how many changes you make.
+- You have complete freedom to overhaul the entire squad if needed.
+- Do NOT hold back. This is the moment to build the best possible 15-man squad within budget.
+- Prioritise players with great fixtures over the next 4–6 GWs, high form, and strong DGW potential.
+- Replace every weak link — poor fixture runs, out-of-form players, injured/doubtful players.
+- You may recommend up to 15 transfers (a complete squad rebuild) if the squad quality demands it.
+- chip in the JSON must be "wildcard" since it is already active.
+` : activeChip === 'freehit' ? `
+🎯 **FREE HIT IS ACTIVE THIS GAMEWEEK — TEMPORARY REBUILD MODE:**
+The manager's Free Hit chip is already activated and live RIGHT NOW. This means:
+- ALL transfers are FREE this gameweek only — the squad reverts to its previous state next week.
+- Target players with the very best fixtures THIS gameweek specifically (DGW players, FDR ≤ 2).
+- Do not worry about long-term squad balance — optimise purely for this gameweek's points.
+- chip in the JSON must be "freehit" since it is already active.
+` : ''}
 
 **TOP BUY TARGETS (not in squad, sorted by ep_next):**
 ${JSON.stringify(topMarketTargets, null, 2)}
@@ -331,17 +356,31 @@ ${prevPlanContext}${recentTransferContext}**MANDATORY RULES — VIOLATIONS MAKE 
    - **Triple Captain**: Only if there is a standout player with a double gameweek or FDR ≤ 2 home fixture.
    - If chip conditions are NOT met for this rank tier, chip = null. Do not force chips outside their criteria.
 7. **Feasibility**: Every player you recommend buying MUST appear in the TOP BUY TARGETS list above (since that is the only price data you have). Do not invent players.
+8. **Consistent Player Assessment**: Your opinion of a player's quality must be stable between analyses. If you assessed a player as a weak link worth dropping, that assessment stands unless something material changed (injury news, fixture reshuffle, form reversal, price change). Recommending opposite actions on the same player across back-to-back analyses is not strategy — it is noise. If your view has genuinely changed, state the specific reason explicitly in your reasoning.
 
 ${rankUrgency}
 
+**DECISION PROCESS — follow this internally before writing output:**
+1. Evaluate all relevant factors privately: fixtures, form, injuries, DGWs/BGWs, budget, chip status, rank objectives, recent transfer history.
+2. Build an option set: which players to move, which chips to consider, what the captain options are.
+3. Assess each option with floor/ceiling/risk framing — not just expected points, but worst-case and best-case outcomes.
+4. Choose the plan most aligned to rank trajectory and manager DNA.
+5. Identify contingencies: what changes if a key player gets injured before the deadline?
+6. THEN write your output. Do NOT reveal raw internal chain-of-thought — output only the structured sections below.
+
 **OUTPUT FORMAT:**
 
+## 🧠 REASONING SUMMARY
+Bullet the key factors that drove this recommendation (keep to 4–6 bullets):
+- Each bullet = one factor and its implication (e.g. "Salah has FDR ≤ 2 for next 3 GWs → hold")
+- Cover: fixture run, form/injury flags, DGW/BGW impact, budget constraints, rank pressure, chip rationale
+
 ## 🐺 THE WOLF'S VERDICT
-(Brief roast/praise of the team situation in 2-3 sentences)
+(Brief roast/praise of the team situation in 2-3 sentences, calibrated to manager DNA)
 
 ## 📋 THE PLAN
 State the exact plan clearly:
-- **Transfers**: list each one as "[OUT] (£X.Xm) → [IN] (£X.Xm)"
+- **Transfers**: list ONLY players genuinely being swapped — "[OUT] (£X.Xm) → [IN] (£X.Xm)". Do NOT list players staying in the squad. Do NOT write "PlayerX → PlayerX". If no transfers, write "No transfers".
 - **Hits taken**: X (-Xpts)
 - **Bank after**: £X.Xm
 - **Chip**: [chip name] OR None
@@ -351,10 +390,18 @@ State the exact plan clearly:
 
 ## 🔍 PLAYER-BY-PLAYER BREAKDOWN
 For each transfer OUT: why they're being dropped (fixture, form, injury, price)
-For each transfer IN: why they're being brought in (fixture, ep_next, form, value)
+For each transfer IN: **Floor** (worst realistic outcome) / **Ceiling** (best realistic outcome) / **Risk** (what could go wrong)
 
-## ⚠️ RISKS & ALTERNATIVES
-What could go wrong, and backup options if budget is tighter.
+## ⚠️ RISKS & CONTINGENCIES
+- What could go wrong with this plan?
+- **If/Then branches**: "If [player X] is ruled out before the deadline → pivot to [player Y] instead"
+- Alternative options if budget is tighter or a target gets injured
+
+## 📅 WATCHLIST & CHECKPOINTS
+List 2–4 specific things the manager should monitor before the deadline:
+- Injury/fitness updates to check (and when — e.g. "Check Thursday press conference")
+- Price rise risks on transfer targets
+- Any decisions that should be deferred until more information is available
 
 ## ✅ POSITION VERIFICATION (do this before writing the JSON)
 Before outputting the JSON, count your transfers by position:

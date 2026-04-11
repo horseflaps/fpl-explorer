@@ -12,7 +12,7 @@ const DNA_LABELS: Record<string, string> = {
 };
 
 const MyAccountView: React.FC = () => {
-    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, forceStatusCheck, setIsLoginOpen, extensionDetected } = useAuth();
+    const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, forceStatusCheck, setIsLoginOpen } = useAuth();
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => { refreshUser(); }, []);
