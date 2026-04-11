@@ -100,6 +100,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [searchError, setSearchError] = useState<string | null>(null);
     const [fplSaving, setFplSaving] = useState(false);
     const [fplError, setFplError] = useState<string | null>(null);
+    const [fplFreeCreditToast, setFplFreeCreditToast] = useState(false);
     const [fplManualId, setFplManualId] = useState('');
     const [hoveredPickElement, setHoveredPickElement] = useState<number | null>(null);
     const [captainSaving, setCaptainSaving] = useState<'captain' | 'vice_captain' | null>(null);
@@ -164,6 +165,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || 'Failed');
                 setFplEntryId(json.entry_id);
+                if (json.free_credit_awarded) {
+                    setFplFreeCreditToast(true);
+                    setTimeout(() => setFplFreeCreditToast(false), 5000);
+                    refreshUser().catch(() => {});
+                }
             } catch (err: any) {
                 setFplError(err.message);
                 setFplSaving(false);
@@ -988,6 +994,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                     className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-[#02efff] focus:ring-1 focus:ring-[#02efff] transition-all"
                                                 />
                                             </div>
+                                            {fplFreeCreditToast && (
+                                                <div className="p-3 bg-[#00ff87]/10 border border-[#00ff87]/30 rounded-lg flex items-center gap-2 text-[#00ff87] text-sm font-semibold">
+                                                    1 free analysis credit added to your account — enjoy your first Wolf analysis on us.
+                                                </div>
+                                            )}
                                             {fplError && (
                                                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-400 text-sm">
                                                     <AlertCircle size={16} />{fplError}
@@ -1115,7 +1126,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             const activeChipNow = picksToUse.active_chip ?? null;
             const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null, lastExecutedPlan, transfers, prevPlan, activeChipNow);
             setLastExecutedPlan(null); // consume — only warn once per execute
-            const result = await fetchGeminiAnalysis(prompt);
+            const result = await fetchGeminiAnalysis(prompt, token ?? '');
 
             // Parse structured plan from response — try multiple strategies
             let displayText = result;
@@ -1188,12 +1199,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             setAiAnalysisText(displayText);
 
-            if (token && displayText.trim().length > 50) {
-                fetch('/api/user/deduct-credit', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
-                }).then(() => refreshUser()).catch(() => {});
-            }
+            // Credit already deducted server-side (atomically, before Gemini was called)
+            // Just refresh the user so the UI shows the updated credit count
+            if (token) refreshUser().catch(() => {});
 
             if (token) {
                 fetch('/api/user/analyses', {
@@ -2157,7 +2165,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             <div className="flex flex-col items-center justify-center py-12 text-[#02efff] gap-6">
                                 <Loader2 className="animate-spin w-8 h-8" />
                                 <span className="text-sm font-bold uppercase tracking-widest animate-pulse">Summoning the Wolf...</span>
-                                <span className="text-white/30 text-xs">Typically less than 60 seconds</span>
+                                <span className="text-white/30 text-xs">Typically 30–90 seconds</span>
                                 {loadingQuote && (
                                     <div
                                         className="max-w-sm text-center space-y-2"

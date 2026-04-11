@@ -223,6 +223,66 @@ app.post('/api/user/deduct-credit', (req, res) => {
     });
 });
 
+// Wolf Analysis — server-side Gemini proxy with atomic credit gate
+// 1. Authenticate  2. Check credits  3. Deduct  4. Call Gemini  5. Return result
+// The Gemini API key never leaves the server. Credits are deducted BEFORE the
+// Gemini call so there is no window where a client can receive the analysis
+// without paying for it.
+app.post('/api/wolf-analysis', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { prompt } = req.body;
+    if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
+
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Wolf analysis not configured on server.' });
+
+    // Check and atomically deduct credit — if deduction fails the Gemini call never happens
+    const creditOk = await new Promise((resolve) => {
+        db.get('SELECT credits FROM users WHERE id = ?', [decoded.id], (err, row) => {
+            if (err || !row || row.credits < 1) return resolve(false);
+            db.run('UPDATE users SET credits = credits - 1 WHERE id = ?', [decoded.id], (err2) => {
+                resolve(!err2);
+            });
+        });
+    });
+    if (!creditOk) return res.status(403).json({ error: 'No analysis credits remaining.' });
+
+    try {
+        const geminiController = new AbortController();
+        const geminiTimeout = setTimeout(() => geminiController.abort(), 170_000); // 170s — just under client's 180s
+        const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: geminiController.signal,
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 65536 },
+                }),
+            }
+        );
+        clearTimeout(geminiTimeout);
+        if (!geminiRes.ok) {
+            const errBody = await geminiRes.json().catch(() => ({}));
+            console.error('[Wolf] Gemini error:', geminiRes.status, errBody);
+            // Refund credit — Gemini failed through no fault of the user
+            db.run('UPDATE users SET credits = credits + 1 WHERE id = ?', [decoded.id], () => {});
+            return res.status(502).json({ error: 'AI service error — credit refunded.' });
+        }
+        const geminiData = await geminiRes.json();
+        const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        res.json({ result: text });
+    } catch (error) {
+        console.error('[Wolf] Fetch error:', error.message);
+        // Refund credit on network error
+        db.run('UPDATE users SET credits = credits + 1 WHERE id = ?', [decoded.id], () => {});
+        res.status(500).json({ error: 'Network error reaching AI service — credit refunded.' });
+    }
+});
+
 app.post('/api/user/manager-dna', (req, res) => {
     const decoded = requireAuth(req, res);
     if (!decoded) return;
@@ -531,9 +591,27 @@ app.post('/api/fpl/connect', (req, res) => {
     const { entry_id } = req.body;
     if (!entry_id) return res.status(400).json({ error: 'entry_id required' });
 
-    db.run('UPDATE users SET fpl_entry_id = ? WHERE id = ?', [Number(entry_id), decoded.id], (err) => {
+    const numericEntryId = Number(entry_id);
+
+    db.run('UPDATE users SET fpl_entry_id = ? WHERE id = ?', [numericEntryId, decoded.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ entry_id: Number(entry_id) });
+
+        // Award 1 free credit if this FPL manager ID has never been used before
+        db.get('SELECT fpl_entry_id FROM fpl_free_credits WHERE fpl_entry_id = ?', [numericEntryId], (err2, row) => {
+            if (err2 || row) {
+                // Already claimed — just return without credit
+                return res.json({ entry_id: numericEntryId, free_credit_awarded: false });
+            }
+            // First time this FPL account has been linked — award 1 credit
+            db.run('INSERT INTO fpl_free_credits (fpl_entry_id) VALUES (?)', [numericEntryId], (err3) => {
+                if (err3) return res.json({ entry_id: numericEntryId, free_credit_awarded: false });
+                db.run('UPDATE users SET credits = credits + 1 WHERE id = ?', [decoded.id], (err4) => {
+                    if (err4) return res.json({ entry_id: numericEntryId, free_credit_awarded: false });
+                    console.log(`[Credits] Free credit awarded to user ${decoded.id} for FPL entry ${numericEntryId}`);
+                    res.json({ entry_id: numericEntryId, free_credit_awarded: true });
+                });
+            });
+        });
     });
 });
 

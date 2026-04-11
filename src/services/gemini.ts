@@ -426,34 +426,47 @@ Rules for the JSON:
 `;
 };
 
-export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1000): Promise<string> => {
+export const fetchGeminiAnalysis = async (prompt: string, token: string, retries = 3, delay = 1000): Promise<string> => {
+    // Always go through the server — the Gemini API key lives server-side only.
+    // The server checks credits, deducts atomically, then calls Gemini.
+    // VITE_GEMINI_API_KEY is kept only as a local dev escape hatch and is never
+    // present in production builds.
     const localKey = import.meta.env.VITE_GEMINI_API_KEY;
     const isLocal = !!localKey;
-    const url = isLocal
-        ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${localKey}`
-        : `/api/wolf-analysis`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90_000);
+    const timeout = setTimeout(() => controller.abort(), 180_000);
 
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify(isLocal ? {
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.1 }
-            } : { prompt })
-        });
+        let response: Response;
+        if (isLocal) {
+            // Local dev only — calls Gemini directly (key not in production bundle)
+            response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${localKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 65536 } }),
+                }
+            );
+        } else {
+            // Production — server handles credit check + deduction + Gemini call
+            response = await fetch('/api/wolf-analysis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                signal: controller.signal,
+                body: JSON.stringify({ prompt }),
+            });
+        }
         clearTimeout(timeout);
 
         if (!response.ok) {
             const status = response.status;
             if ((status === 503 || status === 429) && retries > 0) {
-                console.warn(`Gemini Proxy overloaded (${status}). Retrying in ${delay}ms...`);
+                console.warn(`Wolf analysis overloaded (${status}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return fetchGeminiAnalysis(prompt, retries - 1, delay * 2);
+                return fetchGeminiAnalysis(prompt, token, retries - 1, delay * 2);
             }
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
             const message = errorData.error?.message || errorData.details || errorData.error || response.statusText;
@@ -464,13 +477,10 @@ export const fetchGeminiAnalysis = async (prompt: string, retries = 3, delay = 1
         if (isLocal) {
             return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated.';
         }
-        return data.text || 'No analysis generated.';
+        return data.result || 'No analysis generated.';
     } catch (error: any) {
         clearTimeout(timeout);
-        console.error('Fetch Error:', error);
-        if (error.name === 'AbortError') {
-            throw new Error('Analysis timed out after 90 seconds. Please try again.');
-        }
+        if (error.name === 'AbortError') throw new Error('Analysis timed out after 3 minutes. Please try again.');
         throw new Error(error.message || 'Network Error');
     }
 };

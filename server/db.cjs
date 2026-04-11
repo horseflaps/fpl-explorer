@@ -164,6 +164,40 @@ function initDb() {
             });
         });
 
+        // FPL Free Credit Tracking — one free credit per unique FPL manager ID
+        db.run(`CREATE TABLE IF NOT EXISTS fpl_free_credits (
+            fpl_entry_id INTEGER PRIMARY KEY,
+            awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating fpl_free_credits table:', err.message);
+            else console.log('[DB] FPL free credits tracking table ready.');
+        });
+
+        // Migration: new users start with 0 credits (free credit awarded on FPL link, not sign-up)
+        db.run("UPDATE users SET credits = 0 WHERE credits = 1 AND fpl_entry_id IS NULL", () => {});
+
+        // Tier Definitions Table
+        db.run(`CREATE TABLE IF NOT EXISTS tiers (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            monthly_credits INTEGER NOT NULL DEFAULT 0,
+            price_gbp REAL NOT NULL DEFAULT 0.0,
+            active INTEGER NOT NULL DEFAULT 1
+        )`, (err) => {
+            if (err) { console.error('[DB] Error creating tiers table:', err.message); return; }
+            console.log('[DB] Tiers table ready.');
+            // Seed default tiers (INSERT OR IGNORE so reruns are safe)
+            const seed = [
+                [1, 'Free',       'Basic access — 1 analysis credit to get started.',                          1,  0.0],
+                [2, 'Co-Pilot',  'Monthly credits and full AI analysis to guide your FPL decisions.',         30,  4.99],
+                [3, 'Auto-Pilot','Maximum credits, priority analysis, and early access to new features.',    100,  9.99],
+            ];
+            const stmt = db.prepare('INSERT OR IGNORE INTO tiers (id, name, description, monthly_credits, price_gbp) VALUES (?, ?, ?, ?, ?)');
+            seed.forEach(row => stmt.run(row));
+            stmt.finalize();
+        });
+
         // News Articles Table
         db.run(`CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
