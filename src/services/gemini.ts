@@ -387,6 +387,7 @@ State the exact plan clearly:
 - **Captain**: [Name] | **Vice-Captain**: [Name]
 - **Why this captain**: (one line)
 - **DNA Reasoning**: (one line — how does this captain pick reflect the manager's archetype?)
+- **Bench order**: [1st sub] → [2nd sub] → [3rd sub] | (one line explaining the priority — who is most likely to auto-sub in and why)
 
 ## 🔍 PLAYER-BY-PLAYER BREAKDOWN
 For each transfer OUT: why they're being dropped (fixture, form, injury, price)
@@ -414,13 +415,14 @@ If ANY position count doesn't match, REVISE your transfer list now. Remove or re
 
 ---WOLF_PLAN_JSON---
 Output a single JSON object on ONE line (no line breaks inside) with this exact structure:
-{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":null,"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0}
+{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":null,"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
 
 Rules for the JSON:
 - Use EXACT web_name values from the squad/targets data above (copy-paste, do not paraphrase)
 - chip must be one of: null, "wildcard", "freehit", "bboost", "3xc"
 - If no transfers needed, use empty array [] — this is a valid and correct output when the squad is already strong
 - **CRITICAL: If chip is "wildcard" or "freehit", the transfers array MUST NOT be empty.** Include your top priority player swaps (as many as the TOP BUY TARGETS list allows you to price accurately). A wildcard with zero transfers is invalid — pick the worst players in the squad and replace them with the best available targets within budget.
+- bench_order: array of exactly 3 EXACT web_names for the 3 outfield bench players (positions 12, 13, 14) in priority order. Position 12 = first auto-sub (most likely to play), position 14 = last resort. Do NOT include the backup GK. Rank by: likelihood of starting > fixture difficulty (FDR) > form. A player with a good fixture who is likely to start should be position 12.
 - Output ONLY the JSON on that line, nothing else after the JSON
 ---END_WOLF_PLAN---
 `;

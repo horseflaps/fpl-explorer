@@ -30,6 +30,7 @@ interface WolfPlan {
     vice_captain: string;
     hits_taken: number;
     bank_after: number;
+    bench_order: string[] | null; // web_names for bench positions 12, 13, 14 (outfield only, GK excluded)
 }
 
 interface PitchViewProps {
@@ -1239,9 +1240,10 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 ?? ((data.events.find(e => e.is_current)?.id ?? 0) + 1);
 
             // Normalise chip — AI sometimes outputs the string "None" instead of null
-            const VALID_CHIPS = ['wildcard', 'freehit', 'bboost', '3xc'];
-            const rawChip = wolfPlan.chip && VALID_CHIPS.includes(wolfPlan.chip.toLowerCase())
-                ? wolfPlan.chip.toLowerCase() : null;
+            const TRANSFER_CHIPS = ['wildcard', 'freehit', 'bboost']; // chips activated via transfers endpoint
+            const MY_TEAM_CHIPS = ['3xc'];                             // chips activated via my-team endpoint
+            const rawChip = wolfPlan.chip ? wolfPlan.chip.toLowerCase() : null;
+
             // If a chip is already active FPL requires we keep sending it in the payload —
             // sending null is treated as "cancel chip" which the API rejects.
             // Check all three sources — picksData.active_chip is often null even when a chip is live.
@@ -1249,7 +1251,18 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 || (picksData as any)?._transfers?.active_chip
                 || chips.find((c: any) => c.status_for_entry === 'active')?.name
                 || null;
-            const chip = currentActiveChip ?? rawChip;
+
+            // chip for the transfers endpoint — never send 3xc here
+            const transfersChip = TRANSFER_CHIPS.includes(currentActiveChip ?? '')
+                ? currentActiveChip
+                : TRANSFER_CHIPS.includes(rawChip ?? '') ? rawChip : null;
+
+            // chip for the my-team endpoint — 3xc goes here.
+            // Also preserve an already-active 3xc so FPL doesn't interpret chip:null as "cancel chip".
+            const activeMyTeamChip = chips.find((c: any) => MY_TEAM_CHIPS.includes(c.name) && c.status_for_entry === 'active')?.name ?? null;
+            const myTeamChip = activeMyTeamChip ?? (MY_TEAM_CHIPS.includes(rawChip ?? '') ? rawChip : null);
+
+            const chip = transfersChip;
 
             // Fetch live team to get ACTUAL selling prices (AI estimates may not match FPL exactly)
             let sellingPriceMap: Record<number, number> = {};
@@ -1455,9 +1468,31 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 if (idx !== -1) updatedPicks[idx] = { ...updatedPicks[idx], element: t.element_in };
             }
 
+            // Apply bench order if Wolf recommended one.
+            // Bench positions 12-14 = outfield subs (priority order). Position 15 = backup GK (never moved).
+            let positionMap: Record<number, number> = {}; // elementId -> new position
+            if (wolfPlan.bench_order && wolfPlan.bench_order.length >= 3) {
+                const benchGk = updatedPicks.find(p => p.position === 15);
+                const outfieldBench = updatedPicks.filter(p => p.position >= 12 && p.position <= 14);
+                wolfPlan.bench_order.slice(0, 3).forEach((webName, i) => {
+                    const player = data.elements.find(e => e.web_name === webName);
+                    const pick = player ? outfieldBench.find(p => p.element === player.id) : null;
+                    if (pick) positionMap[pick.element] = 12 + i;
+                });
+                // Any outfield bench player not mentioned keeps a position after the specified ones
+                let fallbackPos = 12;
+                for (const p of outfieldBench) {
+                    if (!positionMap[p.element]) {
+                        while (Object.values(positionMap).includes(fallbackPos)) fallbackPos++;
+                        positionMap[p.element] = fallbackPos++;
+                    }
+                }
+                if (benchGk) positionMap[benchGk.element] = 15;
+            }
+
             const myTeamPicks = updatedPicks.map(p => ({
                 element: p.element,
-                position: p.position,
+                position: positionMap[p.element] ?? p.position,
                 is_captain: captainPlayer ? p.element === captainPlayer.id : p.is_captain,
                 is_vice_captain: vcPlayer ? p.element === vcPlayer.id : p.is_vice_captain,
             }));
@@ -1465,7 +1500,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             const teamRes = await fetch(`/api/fpl-auth/my-team/${entryData.id}/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ picks: myTeamPicks, chip: null }),
+                body: JSON.stringify({ picks: myTeamPicks, chip: myTeamChip }),
             });
 
             if (!teamRes.ok) {

@@ -101,6 +101,10 @@ function initDb() {
         db.run("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 1", () => {});
         db.run("UPDATE users SET credits = 1 WHERE credits IS NULL", () => {});
 
+        // Migration: Subscription start date and Stripe subscription ID
+        db.run("ALTER TABLE users ADD COLUMN subscription_started_at TEXT", () => {});
+        db.run("ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT", () => {});
+
         // Migration: Manager DNA archetype
         db.run("ALTER TABLE users ADD COLUMN manager_dna TEXT", () => {});
         // Existing users are considered verified

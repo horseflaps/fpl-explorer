@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CircleUserRound, Mail, Shield, CheckCircle2, XCircle, LogOut, Zap, Bot, Brain, Unlink, Coins, Dna, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import ManagerDNAQuiz from './ManagerDNAQuiz';
 
 const DNA_LABELS: Record<string, string> = {
@@ -13,11 +14,34 @@ const DNA_LABELS: Record<string, string> = {
 
 const MyAccountView: React.FC = () => {
     const { user, token, isVerified, fplConnected, fplEntryId, logout, refreshUser, forceStatusCheck, setIsLoginOpen } = useAuth();
+    const navigate = useNavigate();
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
+    const [confirmCancel, setConfirmCancel] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
+    const [cancelError, setCancelError] = useState<string | null>(null);
 
     useEffect(() => { refreshUser(); }, []);
     const [confirmDisconnect, setConfirmDisconnect] = useState(false);
     const [disconnecting, setDisconnecting] = useState(false);
+
+    const handleCancelSubscription = async () => {
+        setCancelling(true);
+        setCancelError(null);
+        try {
+            const res = await fetch('/api/stripe/cancel-subscription', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to cancel.');
+            await refreshUser();
+            setConfirmCancel(false);
+        } catch (err: any) {
+            setCancelError(err.message);
+        } finally {
+            setCancelling(false);
+        }
+    };
 
     const handleDisconnect = async () => {
         setDisconnecting(true);
@@ -255,13 +279,53 @@ const MyAccountView: React.FC = () => {
                                 </button>
                             )}
                             {(user?.membership_tier ?? 1) < 3 && (
-                                <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                                <button onClick={() => navigate('/pricing')} className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
                                     Upgrade
                                 </button>
                             )}
                         </div>
                     </div>
                 </div>
+
+                {(user?.membership_tier ?? 1) > 1 && user?.subscription_started_at && (
+                    <div className="flex items-center justify-between px-6 py-4">
+                        <div className="flex items-center gap-3">
+                            <tierInfo.icon className="text-gray-500 w-4 h-4" />
+                            <span className="text-sm text-gray-400">Renewal date</span>
+                        </div>
+                        <span className="text-sm text-gray-300">
+                            {(() => {
+                                const day = new Date(user.subscription_started_at).getDate();
+                                const suffix = day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th';
+                                return `${day}${suffix} of each month`;
+                            })()}
+                        </span>
+                    </div>
+                )}
+
+                {(user?.membership_tier ?? 1) > 1 && (
+                    <div className="px-6 py-4">
+                        {!confirmCancel ? (
+                            <button
+                                onClick={() => { setConfirmCancel(true); setCancelError(null); }}
+                                className="text-xs text-gray-600 hover:text-red-400 transition-colors underline"
+                            >
+                                Cancel membership
+                            </button>
+                        ) : (
+                            <div className="space-y-2">
+                                <p className="text-sm text-gray-300">Cancel your <span className="font-semibold text-white">{tierInfo.label}</span> membership? You'll be moved back to Scout immediately.</p>
+                                {cancelError && <p className="text-xs text-red-400">{cancelError}</p>}
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => setConfirmCancel(false)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1">Keep membership</button>
+                                    <button onClick={handleCancelSubscription} disabled={cancelling} className="text-xs text-red-400 hover:text-red-300 transition-colors px-1 disabled:opacity-50">
+                                        {cancelling ? 'Cancelling...' : 'Yes, cancel'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="flex items-center justify-between px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -272,7 +336,7 @@ const MyAccountView: React.FC = () => {
                         <span className={`text-sm font-semibold ${(user.credits ?? 0) > 0 ? 'text-fpl-green' : 'text-red-400'}`}>
                             {user.credits ?? 0} remaining
                         </span>
-                        <button className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                        <button onClick={() => navigate('/pricing')} className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
                             Buy Credits
                         </button>
                     </div>

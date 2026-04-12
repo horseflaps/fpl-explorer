@@ -22,7 +22,10 @@
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
       "Bash(find /c/Users/mikel/projects/fpl-explorer -name *.py -o -name *.cjs -o -name *.js -o -name *.ts)",
       "Bash(npm install:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(curl:*)",
+      "Bash(node -e \"require\\('./server.cjs'\\)\")",
+      "Bash(node:*)"
     ]
   }
 }

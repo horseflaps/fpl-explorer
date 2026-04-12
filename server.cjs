@@ -9,6 +9,8 @@ const db = require('./server/db.cjs');
 const sqlite3 = require('sqlite3').verbose();
 const { Resend } = require('resend');
 const multer = require('multer');
+const Stripe = require('stripe');
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -27,6 +29,58 @@ const BOOTSTRAP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Middleware
 app.use(cors());
+
+// Stripe webhook — must use raw body BEFORE express.json()
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        console.error('[Stripe] Webhook signature failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const userId = session.metadata?.userId;
+        const type = session.metadata?.type;
+
+        if (!userId) {
+            console.error('[Stripe] Webhook missing userId in metadata');
+            return res.json({ received: true });
+        }
+
+        if (type === 'credits') {
+            const qty = parseInt(session.metadata?.qty, 10);
+            if (!qty || qty < 1) {
+                console.error('[Stripe] Webhook invalid qty:', session.metadata?.qty);
+                return res.json({ received: true });
+            }
+            db.run('UPDATE users SET credits = credits + ? WHERE id = ?', [qty, userId], (err) => {
+                if (err) console.error('[Stripe] Failed to add credits:', err.message);
+                else console.log(`[Stripe] Added ${qty} credits to user ${userId}`);
+            });
+
+        } else if (type === 'subscription') {
+            const plan = session.metadata?.plan;
+            const tier = plan === 'autopilot' ? 3 : plan === 'copilot' ? 2 : null;
+            if (!tier) {
+                console.error('[Stripe] Unknown plan in metadata:', plan);
+                return res.json({ received: true });
+            }
+            const now = new Date().toISOString();
+            const stripeSubId = session.subscription || null;
+            db.run('UPDATE users SET membership_tier = ?, subscription_started_at = ?, stripe_subscription_id = ? WHERE id = ?', [tier, now, stripeSubId, userId], (err) => {
+                if (err) console.error('[Stripe] Failed to update tier:', err.message);
+                else console.log(`[Stripe] User ${userId} upgraded to tier ${tier} (${plan}), sub: ${stripeSubId}`);
+            });
+        }
+    }
+
+    res.json({ received: true });
+});
+
 app.use(express.json());
 
 // Serve static files from the React app build directory (only in production)
@@ -195,8 +249,8 @@ app.get('/api/auth/me', (req, res) => {
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
         // Fetch fresh is_verified from DB so it reflects after email verification
-        db.get('SELECT is_verified, membership_tier, credits, manager_dna FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
-            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1, credits: row?.credits ?? 1, manager_dna: row?.manager_dna || null } });
+        db.get('SELECT is_verified, membership_tier, credits, manager_dna, subscription_started_at FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
+            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1, credits: row?.credits ?? 1, manager_dna: row?.manager_dna || null, subscription_started_at: row?.subscription_started_at || null } });
         });
     });
 });
@@ -1287,6 +1341,102 @@ app.get('/api/bootstrap-static/', async (req, res) => {
     }
 });
 
+// --- Stripe Checkout ---
+
+const CREDIT_PACKS = {
+    1:  { amount: 200,  label: '1 Analysis Credit' },
+    3:  { amount: 500,  label: '3 Analysis Credits' },
+    5:  { amount: 750,  label: '5 Analysis Credits' },
+    10: { amount: 1250, label: '10 Analysis Credits' },
+    50: { amount: 5000, label: '50 Analysis Credits' },
+};
+
+const SUBSCRIPTION_PRICES = {
+    copilot:   process.env.STRIPE_PRICE_COPILOT,
+    autopilot: process.env.STRIPE_PRICE_AUTOPILOT,
+};
+
+app.post('/api/stripe/create-checkout', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    const { type, qty, plan } = req.body;
+    const appUrl = process.env.APP_URL || 'https://fantasypremierwolf.com';
+
+    try {
+        let session;
+
+        if (type === 'credits') {
+            const pack = CREDIT_PACKS[Number(qty)];
+            if (!pack) return res.status(400).json({ error: 'Invalid credit quantity.' });
+
+            session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                line_items: [{
+                    price_data: {
+                        currency: 'gbp',
+                        unit_amount: pack.amount,
+                        product_data: { name: pack.label, description: 'FantasyPremierWolf — credits never expire.' },
+                    },
+                    quantity: 1,
+                }],
+                custom_text: {
+                    submit: { message: 'A percentage of every purchase goes towards carbon offsetting. Thank you for playing sustainably.' },
+                },
+                metadata: { userId: String(decoded.id), type: 'credits', qty: String(qty) },
+                success_url: `${appUrl}/pricing?success=credits&qty=${qty}`,
+                cancel_url:  `${appUrl}/pricing?cancelled=1`,
+            });
+
+        } else if (type === 'subscription') {
+            const priceId = SUBSCRIPTION_PRICES[plan];
+            if (!priceId) return res.status(400).json({ error: 'Invalid plan.' });
+
+            session = await stripe.checkout.sessions.create({
+                mode: 'subscription',
+                line_items: [{ price: priceId, quantity: 1 }],
+                custom_text: {
+                    submit: { message: 'A percentage of every purchase goes towards carbon offsetting. Thank you for playing sustainably.' },
+                },
+                metadata: { userId: String(decoded.id), type: 'subscription', plan },
+                success_url: `${appUrl}/pricing?success=subscription&plan=${plan}`,
+                cancel_url:  `${appUrl}/pricing?cancelled=1`,
+            });
+
+        } else {
+            return res.status(400).json({ error: 'Invalid checkout type.' });
+        }
+
+        res.json({ url: session.url });
+    } catch (err) {
+        console.error('[Stripe] Checkout error:', err.message);
+        res.status(500).json({ error: 'Failed to create checkout session.' });
+    }
+});
+
+app.post('/api/stripe/cancel-subscription', async (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+
+    db.get('SELECT stripe_subscription_id, membership_tier FROM users WHERE id = ?', [decoded.id], async (err, row) => {
+        if (err || !row) return res.status(500).json({ error: 'Failed to fetch user.' });
+        if (!row.stripe_subscription_id) return res.status(400).json({ error: 'No active subscription found.' });
+        if (row.membership_tier <= 1) return res.status(400).json({ error: 'No active subscription to cancel.' });
+
+        try {
+            await stripe.subscriptions.cancel(row.stripe_subscription_id);
+            db.run('UPDATE users SET membership_tier = 1, stripe_subscription_id = NULL, subscription_started_at = NULL WHERE id = ?', [decoded.id], (err2) => {
+                if (err2) return res.status(500).json({ error: 'Subscription cancelled with Stripe but failed to update account.' });
+                console.log(`[Stripe] User ${decoded.id} cancelled subscription ${row.stripe_subscription_id}`);
+                res.json({ ok: true });
+            });
+        } catch (err2) {
+            console.error('[Stripe] Cancel error:', err2.message);
+            res.status(500).json({ error: 'Failed to cancel subscription.' });
+        }
+    });
+});
+
 // FPL API Proxy
 app.use('/api', async (req, res) => {
     // This catches everything else under /api that wasn't handled above
@@ -1346,7 +1496,7 @@ app.use('/api', async (req, res) => {
     }
 });
 
-// Fallback: Serve React App (Production)
+// Fallback: Serve React App (Production) — must be LAST
 if (process.env.NODE_ENV === 'production') {
     app.get('*', (req, res) => {
         res.sendFile(path.join(__dirname, 'dist', 'index.html'));

@@ -8,6 +8,7 @@ interface User {
     membership_tier: number;
     credits: number;
     manager_dna: string | null;
+    subscription_started_at: string | null;
 }
 
 interface AuthContextType {
