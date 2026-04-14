@@ -48,43 +48,66 @@ export interface Player {
     id: number;
     code: number;
     first_name: string;
-
     second_name: string;
     web_name: string;
     team: number;
     element_type: number;
-    selected_by_percent: string;
+    status: string;
+    news: string;
+    photo: string;
+    // Cost
     now_cost: number;
+    cost_change_event: number;
+    cost_change_start: number;
+    cost_change_event_fall: number;
+    cost_change_start_fall: number;
+    // Ownership & transfers
+    selected_by_percent: string;
+    transfers_in_event: number;
+    transfers_out_event: number;
+    transfers_in: number;
+    transfers_out: number;
+    // Points & form
     total_points: number;
     event_points: number;
     points_per_game: string;
     form: string;
     ep_next: string;
     ep_this: string;
+    value_form: string;
+    value_season: string;
+    // Playing time
     minutes: number;
+    chance_of_playing_this_round: number | null;
+    chance_of_playing_next_round: number | null;
+    // Attacking
     goals_scored: number;
     assists: number;
+    expected_goals: string;
+    expected_assists: string;
+    expected_goal_involvements: string;
+    // Defensive
     clean_sheets: number;
     goals_conceded: number;
+    expected_goals_conceded: string;
     own_goals: number;
     penalties_saved: number;
     penalties_missed: number;
+    saves: number;
+    // Cards & discipline
     yellow_cards: number;
     red_cards: number;
-    saves: number;
+    // FPL scoring
     bonus: number;
     bps: number;
+    // ICT
     influence: string;
     creativity: string;
     threat: string;
     ict_index: string;
-    expected_goals: string;
-    expected_assists: string;
-    transfers_in_event: number;
-    transfers_out_event: number;
-    photo: string;
-    news: string;
-    status: string;
+    // Dream team
+    in_dreamteam: boolean;
+    dreamteam_count: number;
 }
 
 export interface Event {
@@ -135,6 +158,10 @@ export interface History {
     creativity: string;
     threat: string;
     ict_index: string;
+    expected_goals: string;
+    expected_assists: string;
+    expected_goal_involvements: string;
+    expected_goals_conceded: string;
     value: number;
     transfers_balance: number;
     selected: number;

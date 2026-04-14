@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { FPLResponse, Fixture } from '../types/fpl';
-import { Shield, Calendar, Users, Activity, Loader2 } from 'lucide-react';
+import { Shield, Calendar, Users, Activity, Loader2, ChevronDown } from 'lucide-react';
 import { fetchFixtures } from '../services/api';
 
 interface TeamsViewProps {
@@ -46,17 +46,18 @@ const TeamsView: React.FC<TeamsViewProps> = ({ data }) => {
                     <h2 className="text-2xl font-bold text-white mb-2">Team Hub</h2>
                     <p className="text-gray-400 text-sm">Select a club to view detailed analysis and schedule</p>
                 </div>
-                <div className="w-full md:w-72">
+                <div className="w-full md:w-72 relative">
                     <select
                         value={selectedTeamId || ''}
                         onChange={(e) => onSelectTeam(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-fpl-blue focus:ring-1 focus:ring-fpl-blue appearance-none cursor-pointer"
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-4 py-3 pr-10 focus:outline-none focus:border-fpl-blue focus:ring-1 focus:ring-fpl-blue appearance-none cursor-pointer"
                     >
                         <option value="">Select a Team...</option>
                         {data.teams.map((team) => (
                             <option key={team.id} value={team.id}>{team.name}</option>
                         ))}
                     </select>
+                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 </div>
             </div>
 

@@ -1,0 +1,3 @@
+To start the listener for stripe payments-
+stripe listen --forward-to localhost:3001/api/stripe/webhook
+

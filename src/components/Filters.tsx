@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, ChevronDown } from 'lucide-react';
 import type { Team, ElementType } from '../types/fpl';
 
 interface FiltersProps {
@@ -89,18 +89,21 @@ const Filters: React.FC<FiltersProps> = ({
                 {/* Team Filter */}
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-300">Team</label>
-                    <select
-                        value={selectedTeam || ''}
-                        onChange={(e) => setSelectedTeam(e.target.value ? Number(e.target.value) : null)}
-                        className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-2.5 focus:outline-none focus:border-fpl-pink focus:ring-1 focus:ring-fpl-pink transition-all appearance-none cursor-pointer"
-                    >
-                        <option value="">All Teams</option>
-                        {teams.map((team) => (
-                            <option key={team.id} value={team.id}>
-                                {team.name}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="relative">
+                        <select
+                            value={selectedTeam || ''}
+                            onChange={(e) => setSelectedTeam(e.target.value ? Number(e.target.value) : null)}
+                            className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-2.5 pr-9 focus:outline-none focus:border-fpl-pink focus:ring-1 focus:ring-fpl-pink transition-all appearance-none cursor-pointer"
+                        >
+                            <option value="">All Teams</option>
+                            {teams.map((team) => (
+                                <option key={team.id} value={team.id}>
+                                    {team.name}
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    </div>
                 </div>
             </div>
         </div>

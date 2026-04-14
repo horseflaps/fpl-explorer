@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail, Leaf, FlaskConical } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import ManagerDNAQuiz from './ManagerDNAQuiz';
@@ -45,6 +45,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/my-teams', label: 'My Teams', icon: Shirt },
         { path: '/pricing', label: 'Pricing', icon: Tag },
         { path: '/players', label: 'Players', icon: Users },
+        { path: '/lab', label: 'Lab', icon: FlaskConical },
         { path: '/teams', label: 'Teams', icon: Shield },
         { path: '/fixtures', label: 'Fixtures', icon: Calendar },
         { path: '/gameweek', label: 'Gameweek', icon: Activity },
@@ -54,6 +55,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
         { path: '/how-it-works', label: 'How It Works', icon: BookOpen },
         { path: '/faq', label: 'FAQ', icon: HelpCircle },
         { path: '/contact', label: 'Contact', icon: Mail },
+        { path: '/carbon', label: 'Carbon', icon: Leaf },
     ] as const;
 
     return (

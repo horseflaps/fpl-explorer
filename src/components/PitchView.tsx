@@ -219,6 +219,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [view, setView] = useState<'pitch' | 'list'>('pitch');
     const [showAnalysis, setShowAnalysis] = useState(false);
     const [showLoginModal, setShowLoginModal] = useState(false);
+    const [showWolfConfirm, setShowWolfConfirm] = useState(false);
 
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
@@ -686,6 +687,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         setCachedLineupDate(null);
         setChips([]);
     }, [entryId]);
+
+    // Always show player picker when in edit mode
+    useEffect(() => {
+        if (isEditingTeam) setShowPlayerPicker(true);
+    }, [isEditingTeam]);
 
     const handlePrevGw = () => setSelectedGw(prev => Math.max(1, prev - 1));
     const handleNextGw = () => {
@@ -2805,83 +2811,70 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </div>
             )}
             <div className={`max-w-4xl mx-auto px-4 md:px-0 transition-all duration-500 ${isEditingTeam ? 'sticky bottom-6 z-50' : ''} ${(user?.credits ?? 0) < 1 ? 'opacity-40 pointer-events-none' : ''}`}>
-                <div
-                    className={`
-                        w-full relative group overflow-hidden rounded-2xl border transition-all shadow-2xl
-                        ${isEditingTeam
-                            ? 'bg-[#220025] border-[#00ff87]/50 p-4 md:p-6'
-                            : 'bg-gradient-to-r from-[#37003c] to-[#4d0c54] border-white/10 p-4 md:p-6 hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(0,255,135,0.15)] active:scale-[0.99] cursor-pointer'
-                        }
-                    `}
-                    onClick={() => !isEditingTeam && handleAnalyze()}
-                >
-                    {/* Background Effect */}
-                    <div className={`absolute inset-0 transition-opacity ${isEditingTeam ? 'bg-[#00ff87]/5' : 'bg-[#00ff87]/5 opacity-0 group-hover:opacity-100'}`}></div>
+                <div className={`
+                        w-full relative overflow-hidden rounded-2xl border transition-all shadow-2xl p-4 md:p-6
+                        ${isEditingTeam ? 'bg-[#220025] border-[#00ff87]/50' : 'bg-gradient-to-r from-[#37003c] to-[#4d0c54] border-white/10'}
+                    `}>
+                    <div className={`absolute inset-0 ${isEditingTeam ? 'bg-[#00ff87]/5' : ''}`}></div>
 
-                    <div className="relative flex items-center justify-between gap-4 md:gap-6">
-                        <div className="flex items-center gap-4 md:gap-6 flex-1">
+                    <div className="relative flex items-center justify-between gap-3 md:gap-6">
+                        {/* Left: icon + title */}
+                        <div className="flex items-center gap-3 md:gap-6 flex-1 min-w-0">
                             <div className={`
                                 w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center border shadow-xl shrink-0 transition-colors
-                                ${isEditingTeam ? 'bg-[#220025] border-[#00ff87] shadow-[0_0_15px_rgba(0,255,135,0.2)]' : 'bg-[#37003c] border-white/20 group-hover:border-[#00ff87]/50'}
+                                ${isEditingTeam ? 'bg-[#220025] border-[#00ff87] shadow-[0_0_15px_rgba(0,255,135,0.2)]' : 'bg-[#37003c] border-white/20'}
                             `}>
                                 <Activity className={`w-6 h-6 md:w-8 md:h-8 ${isEditingTeam ? 'text-[#00ff87] animate-pulse' : 'text-[#00ff87]'}`} />
                             </div>
-
-                            <div className="text-left flex-1">
+                            <div className="text-left flex-1 min-w-0">
                                 {isEditingTeam ? (
                                     <div className="animate-in fade-in slide-in-from-left-4 duration-300">
-                                        <div className="flex items-center gap-3">
-                                            <h3 className="text-lg md:text-2xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 text-[#00ff87]">
-                                                Analysis Mode Active
-                                            </h3>
-
-                                        </div>
-                                        <p className="text-xs md:text-sm text-white font-bold tracking-wide mt-0.5 leading-tight">
-                                            Update your lineup below to reflect any recent transfers, then Unleash the Wolf.
-                                        </p>
+                                        <h3 className="text-base md:text-2xl font-black text-[#00ff87] italic tracking-tighter uppercase leading-none mb-1">Edit Mode Active</h3>
+                                        <p className="text-xs md:text-sm text-white/70 font-bold tracking-wide leading-tight">Make changes to your squad, then unleash the Wolf.</p>
                                     </div>
                                 ) : (
                                     <>
-                                        <h3 className="text-lg md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-1 group-hover:text-[#00ff87] transition-colors">
-                                            The Wolf's Diagnosis
-                                        </h3>
+                                        <h3 className="text-lg md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none mb-1">The Wolf's Diagnosis</h3>
                                         <p className="text-[10px] md:text-xs text-white/60 font-bold uppercase tracking-[0.1em] md:tracking-[0.2em]">Alpha Strategy Analysis mode</p>
                                     </>
                                 )}
                             </div>
                         </div>
 
-                        {/* Button Action */}
-                        <div className="shrink-0 flex items-center gap-3">
-                            {/* Exit Button */}
-                            {isEditingTeam && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
+                        {/* Right: two buttons always visible */}
+                        <div className="shrink-0 flex items-center gap-2 md:gap-3">
+                            {/* Button 1: Edit Team toggle */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isEditingTeam) {
                                         setIsEditingTeam(false);
                                         setGhostPlayerIds([]);
                                         setEditedPicks(null);
                                         setShowPlayerPicker(false);
-                                    }}
-                                    className="w-12 h-12 md:w-[54px] md:h-[54px] flex items-center justify-center bg-[#220025] border border-white/10 rounded-xl hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400 text-white/40 transition-all group/exit shadow-lg"
-                                    title="Exit Analysis Mode"
-                                >
-                                    <X size={24} className="group-hover/exit:scale-110 transition-transform" />
-                                </button>
-                            )}
+                                    } else {
+                                        if (!picksData || !entryData) return;
+                                        setEditedPicks(JSON.parse(JSON.stringify(picksData)));
+                                        setIsEditingTeam(true);
+                                    }
+                                }}
+                                className={`px-3 py-2.5 md:px-5 md:py-3 rounded-xl font-black text-xs uppercase tracking-wide border transition-all flex items-center gap-1.5
+                                    ${isEditingTeam
+                                        ? 'bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20'
+                                        : 'bg-white/5 border-white/20 text-white hover:bg-white/10'
+                                    }`}
+                            >
+                                {isEditingTeam ? <><X size={13} /> Exit</> : <>Edit Team</>}
+                            </button>
 
-                            {isEditingTeam ? (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); runAnalysis(); }}
-                                    className="px-6 py-3 md:px-8 md:py-4 bg-[#00ff87] text-[#37003c] font-black rounded-xl text-sm md:text-base uppercase flex items-center gap-2 hover:bg-[#02efff] hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.3)]"
-                                >
-                                    <span className="text-xl">🐺</span> Unleash Wolf
-                                </button>
-                            ) : (
-                                <div className="hidden md:flex px-6 py-3 bg-[#00ff87] text-[#37003c] font-black rounded-lg text-sm uppercase items-center gap-2 group-hover:bg-[#02efff] transition-all">
-                                    Get Analysis <Sparkles size={16} />
-                                </div>
-                            )}
+                            {/* Button 2: Unleash the Wolf */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowWolfConfirm(true); }}
+                                className="px-3 py-2.5 md:px-6 md:py-3 bg-[#00ff87] text-[#37003c] font-black rounded-xl text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 hover:bg-[#02efff] hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.3)]"
+                            >
+                                <span>🐺</span>
+                                <span className="hidden sm:inline">Unleash Wolf</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -3172,6 +3165,61 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             {renderAnalysisModal()}
 
             {/* Not Connected Warning (tier 2/3) */}
+            {/* Wolf Confirm Modal */}
+            {showWolfConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative">
+                        <button onClick={() => setShowWolfConfirm(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors">
+                            <X size={16} />
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-4">
+                            <span className="text-3xl">🐺</span>
+                            <div>
+                                <h3 className="text-white font-black text-lg leading-tight">Unleash the Wolf?</h3>
+                                <p className="text-gray-500 text-xs">This will use 1 analysis credit</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-800/50 border border-white/5 rounded-xl p-3 mb-4 flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Credits remaining</span>
+                            <span className={`font-black text-sm ${(user?.credits ?? 0) > 0 ? 'text-[#00ff87]' : 'text-red-400'}`}>
+                                {user?.credits ?? 0} → {Math.max(0, (user?.credits ?? 0) - 1)} after analysis
+                            </span>
+                        </div>
+
+                        {/* Warning for Scout tier or not FPL-connected */}
+                        {(!fplConnected || (user?.membership_tier ?? 1) === 1) && (
+                            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 mb-4 flex items-start gap-2">
+                                <AlertTriangle size={15} className="text-yellow-400 shrink-0 mt-0.5" />
+                                <p className="text-yellow-200/80 text-xs leading-relaxed">
+                                    {!fplConnected
+                                        ? 'Your FPL account is not connected. Make sure the team shown on screen is identical to your FPL squad — the Wolf analyses what it can see, not what\'s on the FPL website.'
+                                        : 'On Scout tier the Wolf analyses the squad shown on screen. Ensure it matches your FPL team exactly before running.'
+                                    }
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowWolfConfirm(false)}
+                                className="flex-1 py-2.5 rounded-xl border border-white/10 text-gray-400 font-bold text-sm hover:bg-white/5 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => { setShowWolfConfirm(false); runAnalysis(); }}
+                                disabled={(user?.credits ?? 0) < 1}
+                                className="flex-1 py-2.5 rounded-xl bg-[#00ff87] text-slate-900 font-black text-sm uppercase tracking-wide hover:bg-[#02efff] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                <span>🐺</span> Unleash
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showNotConnectedWarning && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
                     <div className="bg-slate-900 border border-yellow-500/30 rounded-2xl p-8 max-w-sm w-full space-y-5 text-center shadow-2xl">

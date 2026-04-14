@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Player, Team, ElementType } from '../types/fpl';
 import { getPlayerImageUrl, fallbackPlayerImage } from '../services/api';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface PlayerCardProps {
     player: Player;
@@ -13,13 +13,16 @@ interface PlayerCardProps {
 const PlayerCard: React.FC<PlayerCardProps> = ({ player, team, position, onClick }) => {
     const statusColor = (status: string) => {
         switch (status) {
-            case 'a': return 'bg-fpl-green'; // Available
-            case 'd': return 'bg-yellow-500'; // Doubtful
-            case 'i': return 'bg-red-500'; // Injured
-            case 'u': return 'bg-gray-500'; // Unavailable
+            case 'a': return 'bg-fpl-green';
+            case 'd': return 'bg-yellow-500';
+            case 'i': return 'bg-red-500';
+            case 'u': return 'bg-gray-500';
             default: return 'bg-gray-500';
         }
     };
+
+    const priceChange = player.cost_change_event / 10;
+    const priceChangeSeason = player.cost_change_start / 10;
 
     return (
         <div
@@ -30,12 +33,25 @@ const PlayerCard: React.FC<PlayerCardProps> = ({ player, team, position, onClick
 
             {/* Header / Image Area */}
             <div className="relative pt-4 px-4 flex justify-center bg-gradient-to-b from-slate-800/50 to-transparent">
-                <div className="absolute top-3 right-3 flex flex-col items-end">
-                    <span className="text-2xl font-bold text-white">{player.now_cost / 10}m</span>
-                    <span className="text-xs text-gray-400">Price</span>
+                <div className="absolute top-3 right-3 flex flex-col items-end gap-0.5">
+                    <span className="text-2xl font-bold text-white">£{player.now_cost / 10}m</span>
+                    {priceChange !== 0 ? (
+                        <span className={`text-xs font-bold flex items-center gap-0.5 ${priceChange > 0 ? 'text-fpl-green' : 'text-red-400'}`}>
+                            {priceChange > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                            {priceChange > 0 ? '+' : ''}{priceChange.toFixed(1)}
+                        </span>
+                    ) : priceChangeSeason !== 0 ? (
+                        <span className={`text-xs font-bold flex items-center gap-0.5 ${priceChangeSeason > 0 ? 'text-fpl-green' : 'text-red-400'}`}>
+                            {priceChangeSeason > 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                            {priceChangeSeason > 0 ? '+' : ''}{priceChangeSeason.toFixed(1)} season
+                        </span>
+                    ) : null}
                 </div>
-                <div className="absolute top-3 left-3 z-20">
+                <div className="absolute top-3 left-3 z-20 flex flex-col gap-1">
                     <div className={`w-3 h-3 rounded-full ${statusColor(player.status)} ring-2 ring-slate-900`} title={`Status: ${player.status}`} />
+                    {player.chance_of_playing_next_round !== null && player.chance_of_playing_next_round !== undefined && player.chance_of_playing_next_round < 100 && (
+                        <span className="text-[9px] font-black text-yellow-400 leading-none">{player.chance_of_playing_next_round}%</span>
+                    )}
                 </div>
 
                 <div className="w-28 h-36 overflow-hidden relative z-10">
@@ -60,22 +76,30 @@ const PlayerCard: React.FC<PlayerCardProps> = ({ player, team, position, onClick
                     </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mt-auto">
+                <div className="grid grid-cols-3 gap-2 mt-auto">
                     <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
-                        <div className="text-xs text-gray-400 mb-0.5">Points</div>
-                        <div className="text-xl font-bold text-fpl-green">{player.total_points}</div>
+                        <div className="text-xs text-gray-400 mb-0.5">Pts</div>
+                        <div className="text-lg font-bold text-fpl-green">{player.total_points}</div>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
+                        <div className="text-xs text-gray-400 mb-0.5">PPG</div>
+                        <div className="text-lg font-bold text-white">{player.points_per_game}</div>
                     </div>
                     <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
                         <div className="text-xs text-gray-400 mb-0.5">Form</div>
-                        <div className="text-xl font-bold text-white">{player.form}</div>
+                        <div className="text-lg font-bold text-white">{player.form}</div>
                     </div>
                     <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
-                        <div className="text-xs text-gray-400 mb-0.5">Selected</div>
+                        <div className="text-xs text-gray-400 mb-0.5">Own%</div>
                         <div className="text-sm font-bold text-white">{player.selected_by_percent}%</div>
                     </div>
                     <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
                         <div className="text-xs text-gray-400 mb-0.5">ICT</div>
                         <div className="text-sm font-bold text-white">{player.ict_index}</div>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-lg p-2 text-center group-hover:bg-slate-800/80 transition-colors">
+                        <div className="text-xs text-gray-400 mb-0.5">xGI</div>
+                        <div className="text-sm font-bold text-white">{parseFloat(player.expected_goal_involvements).toFixed(1)}</div>
                     </div>
                 </div>
 

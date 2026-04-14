@@ -148,7 +148,7 @@ const HowItWorksView: React.FC = () => {
                 >
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
                         <Card icon={<Users className="text-fpl-green w-6 h-6" />} title="Players">
-                            Browse all FPL players. Filter by position and team, search by name, and view each player's cost, total points, form, and detailed stats including price history charts.
+                            Browse all FPL players. Filter by position and team, search by name, and view each player's cost, total points, form, and detailed stats including price history charts. Compare season stats for up to 4 players at once.
                         </Card>
                         <Card icon={<Shield className="text-[#02efff] w-6 h-6" />} title="Teams" accent="[#02efff]">
                             Dive into any Premier League club. See their top FPL assets, recent form (last 5 results), upcoming fixtures, and attacking/defensive strength ratings used in FDR calculations.
