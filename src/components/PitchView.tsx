@@ -2325,6 +2325,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 Re-run Analysis
                                             </button>
                                         </div>
+                                    ) : (user?.membership_tier ?? 1) < 2 ? (
+                                        <div className="w-full px-4 py-4 bg-slate-800/60 border border-slate-600/50 rounded-xl text-center space-y-2">
+                                            <p className="text-gray-300 text-xs font-black uppercase tracking-wider">🔒 Execution requires Co-Pilot or Autopilot</p>
+                                            <p className="text-gray-500 text-xs">Tier 1 (Scout) can analyse but not execute transfers.</p>
+                                            <a href="/pricing" className="inline-block text-fpl-green text-xs font-bold hover:underline mt-1">Upgrade your plan →</a>
+                                        </div>
                                     ) : !fplConnected ? (
                                         <button
                                             onClick={() => {
@@ -2396,6 +2402,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 {executeResult.skipped.map((r, i) => <p key={i} className="text-yellow-300/80 text-xs">{r}</p>)}
                                             </div>
                                         )}
+                                    </div>
+                                ) : (user?.membership_tier ?? 1) < 2 ? (
+                                    <div className="w-full px-4 py-4 bg-slate-800/60 border border-slate-600/50 rounded-xl text-center space-y-2">
+                                        <p className="text-gray-300 text-xs font-black uppercase tracking-wider">🔒 Execution requires Co-Pilot or Autopilot</p>
+                                        <p className="text-gray-500 text-xs">Tier 1 (Scout) can analyse but not execute transfers.</p>
+                                        <a href="/pricing" className="inline-block text-fpl-green text-xs font-bold hover:underline mt-1">Upgrade your plan →</a>
                                     </div>
                                 ) : !fplConnected ? (
                                     <button
