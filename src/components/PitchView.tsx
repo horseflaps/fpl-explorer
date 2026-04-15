@@ -1635,12 +1635,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     // Actual Analysis Trigger (called after confirmation)
     const runAnalysis = async () => {
-        if (!editedPicks || !entryData) return;
+        const picksToAnalyse = editedPicks || picksData;
+        if (!picksToAnalyse || !entryData) return;
         setIsEditingTeam(false); // Close edit modal
 
-        // Open Modal and Trigger AI Analysis directly with EDITED picks
+        // Open Modal and Trigger AI Analysis directly with EDITED picks (or current picks if no edits made)
         setShowAnalysis(true);
-        handleGeminiAnalysis(editedPicks);
+        handleGeminiAnalysis(picksToAnalyse);
     };
 
     const handleRemovePlayer = (pick: Pick) => {

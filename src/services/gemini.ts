@@ -433,7 +433,12 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
     // The server checks credits, deducts atomically, then calls Gemini.
     // VITE_GEMINI_API_KEY is kept only as a local dev escape hatch and is never
     // present in production builds.
-    const localKey = import.meta.env.VITE_GEMINI_API_KEY;
+    // Local dev escape hatch — only Gemini supports direct browser calls (no CORS restriction).
+    // Claude blocks browser-origin requests, so always proxy through the server for Claude.
+    // VITE_AI_PROVIDER: "claude" (default) or "gemini"
+    const localProvider = (import.meta.env.VITE_AI_PROVIDER || 'claude').toLowerCase();
+    const localGeminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const localKey = localProvider === 'gemini' ? localGeminiKey : null;
     const isLocal = !!localKey;
 
     const controller = new AbortController();
@@ -442,18 +447,39 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
     try {
         let response: Response;
         if (isLocal) {
-            // Local dev only — calls Gemini directly (key not in production bundle)
-            response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${localKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: controller.signal,
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 65536 } }),
-                }
-            );
+            // Local dev only — calls AI provider directly (key not in production bundle)
+            if (localProvider === 'gemini') {
+                response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${localKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 65536 } }),
+                    }
+                );
+            } else {
+                response = await fetch(
+                    'https://api.anthropic.com/v1/messages',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': localKey,
+                            'anthropic-version': '2023-06-01',
+                        },
+                        signal: controller.signal,
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-6',
+                            max_tokens: 16000,
+                            temperature: 0.7,
+                            messages: [{ role: 'user', content: prompt }],
+                        }),
+                    }
+                );
+            }
         } else {
-            // Production — server handles credit check + deduction + Gemini call
+            // Production — server handles credit check + deduction + AI call
             response = await fetch('/api/wolf-analysis', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -477,7 +503,9 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
 
         const data = await response.json();
         if (isLocal) {
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated.';
+            return localProvider === 'gemini'
+                ? (data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated.')
+                : (data.content?.[0]?.text || 'No analysis generated.');
         }
         return data.result || 'No analysis generated.';
     } catch (error: any) {

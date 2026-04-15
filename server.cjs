@@ -289,10 +289,15 @@ app.post('/api/wolf-analysis', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
 
+    // AI_PROVIDER: "claude" (default) or "gemini" — change env var to switch providers
+    const AI_PROVIDER = (process.env.AI_PROVIDER || 'claude').toLowerCase();
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_API_KEY) return res.status(500).json({ error: 'Wolf analysis not configured on server.' });
 
-    // Check and atomically deduct credit — if deduction fails the Gemini call never happens
+    if (AI_PROVIDER === 'gemini' && !GEMINI_API_KEY) return res.status(500).json({ error: 'Wolf analysis not configured on server.' });
+    if (AI_PROVIDER !== 'gemini' && !ANTHROPIC_API_KEY) return res.status(500).json({ error: 'Wolf analysis not configured on server.' });
+
+    // Check and atomically deduct credit — if deduction fails the AI call never happens
     const creditOk = await new Promise((resolve) => {
         db.get('SELECT credits FROM users WHERE id = ?', [decoded.id], (err, row) => {
             if (err || !row || row.credits < 1) return resolve(false);
@@ -304,30 +309,57 @@ app.post('/api/wolf-analysis', async (req, res) => {
     if (!creditOk) return res.status(403).json({ error: 'No analysis credits remaining.' });
 
     try {
-        const geminiController = new AbortController();
-        const geminiTimeout = setTimeout(() => geminiController.abort(), 170_000); // 170s — just under client's 180s
-        const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: geminiController.signal,
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.7, maxOutputTokens: 65536 },
-                }),
-            }
-        );
-        clearTimeout(geminiTimeout);
-        if (!geminiRes.ok) {
-            const errBody = await geminiRes.json().catch(() => ({}));
-            console.error('[Wolf] Gemini error:', geminiRes.status, errBody);
-            // Refund credit — Gemini failed through no fault of the user
+        const aiController = new AbortController();
+        const aiTimeout = setTimeout(() => aiController.abort(), 170_000); // 170s — just under client's 180s
+
+        let aiRes;
+        if (AI_PROVIDER === 'gemini') {
+            aiRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: aiController.signal,
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.7, maxOutputTokens: 65536 },
+                    }),
+                }
+            );
+        } else {
+            aiRes = await fetch(
+                'https://api.anthropic.com/v1/messages',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': ANTHROPIC_API_KEY,
+                        'anthropic-version': '2023-06-01',
+                    },
+                    signal: aiController.signal,
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-6',
+                        max_tokens: 16000,
+                        temperature: 0.7,
+                        messages: [{ role: 'user', content: prompt }],
+                    }),
+                }
+            );
+        }
+
+        clearTimeout(aiTimeout);
+        if (!aiRes.ok) {
+            const errBody = await aiRes.json().catch(() => ({}));
+            console.error('[Wolf] AI error:', aiRes.status, errBody);
+            // Refund credit — AI service failed through no fault of the user
             db.run('UPDATE users SET credits = credits + 1 WHERE id = ?', [decoded.id], () => {});
             return res.status(502).json({ error: 'AI service error — credit refunded.' });
         }
-        const geminiData = await geminiRes.json();
-        const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+        const aiData = await aiRes.json();
+        const text = AI_PROVIDER === 'gemini'
+            ? (aiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '')
+            : (aiData?.content?.[0]?.text ?? '');
         res.json({ result: text });
     } catch (error) {
         console.error('[Wolf] Fetch error:', error.message);
