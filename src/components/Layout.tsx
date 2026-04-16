@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail, Leaf, FlaskConical } from 'lucide-react';
+import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail, Leaf, FlaskConical, Bot, Lock } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
 import ManagerDNAQuiz from './ManagerDNAQuiz';
@@ -42,6 +42,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const navItems = [
         { path: '/', label: 'Home', icon: LayoutDashboard },
         { path: '/analyse', label: 'Analyse', icon: LineChart },
+        { path: '/autopilot', label: 'Auto-Pilot', icon: Bot },
         { path: '/my-teams', label: 'My Teams', icon: Shirt },
         { path: '/pricing', label: 'Pricing', icon: Tag },
         { path: '/players', label: 'Players', icon: Users },
@@ -148,27 +149,33 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                     </div>
 
                     <nav className="flex-1 p-4 space-y-2">
-                        {navItems.map((item) => (
-                            <React.Fragment key={item.path}>
-                                {(item.label === 'Players' || item.label === 'My Account') && (
-                                    <div className="mx-4 my-2 border-t border-slate-700/50" />
-                                )}
-                                <NavLink
-                                    to={item.path}
-                                    className={({ isActive }) => `w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${isActive
-                                        ? 'bg-fpl-green text-slate-900 shadow-lg shadow-fpl-green/20 font-bold'
-                                        : 'text-gray-400 hover:text-white hover:bg-slate-800'
-                                        }`}
-                                >
-                                    {({ isActive }) => (
-                                        <>
-                                            <item.icon size={20} className={`${isActive ? 'text-slate-900' : 'group-hover:text-fpl-green transition-colors'}`} />
-                                            <span className="font-semibold">{item.label}</span>
-                                        </>
+                        {navItems.map((item) => {
+                            const isAutopilotLocked = item.label === 'Auto-Pilot' && (user?.membership_tier ?? 0) < 3;
+                            return (
+                                <React.Fragment key={item.path}>
+                                    {(item.label === 'Players' || item.label === 'My Account') && (
+                                        <div className="mx-4 my-2 border-t border-slate-700/50" />
                                     )}
-                                </NavLink>
-                            </React.Fragment>
-                        ))}
+                                    <NavLink
+                                        to={item.path}
+                                        className={({ isActive }) => `w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${isActive
+                                            ? 'bg-fpl-green text-slate-900 shadow-lg shadow-fpl-green/20 font-bold'
+                                            : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                                            }`}
+                                    >
+                                        {({ isActive }) => (
+                                            <>
+                                                <item.icon size={20} className={`${isActive ? 'text-slate-900' : 'group-hover:text-fpl-green transition-colors'}`} />
+                                                <span className="font-semibold flex-1">{item.label}</span>
+                                                {isAutopilotLocked && (
+                                                    <Lock size={13} className={`shrink-0 ${isActive ? 'text-slate-900/60' : 'text-gray-600'}`} />
+                                                )}
+                                            </>
+                                        )}
+                                    </NavLink>
+                                </React.Fragment>
+                            );
+                        })}
                     </nav>
 
                     <div className="p-4 space-y-4 border-t border-slate-800/50 bg-slate-900/30">

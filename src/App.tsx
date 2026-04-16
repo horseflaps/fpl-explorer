@@ -17,6 +17,7 @@ import FAQView from './components/FAQView';
 import ContactView from './components/ContactView';
 import CarbonView from './components/CarbonView';
 import LabView from './components/XGLabView';
+import AutopilotView from './components/AutopilotView';
 import VerifiedRoute from './components/VerifiedRoute';
 import MyAccountView from './components/MyAccountView';
 import Layout from './components/Layout';
@@ -97,6 +98,7 @@ function App() {
             <Route path="/contact" element={<ContactView />} />
             <Route path="/carbon" element={<CarbonView />} />
             <Route path="/lab" element={<LabView data={data} />} />
+            <Route path="/autopilot" element={<VerifiedRoute><AutopilotView /></VerifiedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

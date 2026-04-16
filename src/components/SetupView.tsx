@@ -59,7 +59,7 @@ const SetupView: React.FC = () => {
                         </div>
                         <h3 className="text-xl font-bold text-white mb-3">3. Done!</h3>
                         <p className="text-gray-400 text-sm leading-relaxed mb-6">
-                            Return here and refresh. The extension will automatically detect your team ID and session tokens.
+                            Return here and the Wolf will automatically detect your team ID and session tokens.
                         </p>
                         <button
                             onClick={() => window.location.href = '/'}
@@ -82,7 +82,10 @@ const SetupView: React.FC = () => {
                             FPW uses the same security model as your browser, and by using this extension, we never see your password.
                             The extension simply reads the local session token directly from the official FPL website, allowing us to
                             make the agreed changes to your team securely and accurately.
-                        </p>
+                                  </p>
+                                  <p className="text-gray-400 leading-relaxed">
+                                  Also, the connection must be made before switching Auto-Pilot on, once Auto-Pilot is switched on its just set and forget so you don't need to leave your device on.
+                                    </p>
                     </div>
                 </div>
             </div>

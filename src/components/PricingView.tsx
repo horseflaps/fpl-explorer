@@ -11,8 +11,9 @@ const analysisTiers = [
     { qty: 50, total: '£50.00', perUnit: '£1.00',  saving: 'Save £50.00 (50% off)' },
 ];
 
-const membershipTiers = [
+const membershipTiersMeta = [
     {
+        id: 1,
         icon: Zap,
         name: 'Scout',
         price: 'Free',
@@ -33,9 +34,9 @@ const membershipTiers = [
         ],
     },
     {
+        id: 2,
         icon: Bot,
         name: 'Co-Pilot',
-        price: '£5',
         sub: 'per month',
         color: 'text-[#02efff]',
         border: 'border-[#02efff]/40',
@@ -52,11 +53,10 @@ const membershipTiers = [
         ],
     },
     {
+        id: 3,
         icon: Brain,
         name: 'Autopilot',
-        price: '£10',
         sub: 'per month',
-        alt: '£90 / season',
         color: 'text-[#00ff87]',
         border: 'border-[#00ff87]/40',
         bg: 'bg-[#00ff87]/5',
@@ -68,7 +68,6 @@ const membershipTiers = [
             'Automatic analysis before every GW deadline',
             'Transfers applied without you lifting a finger',
             'Email summary of every change made',
-            'Season pass saves you £30 vs monthly',
         ],
     },
 ];
@@ -77,6 +76,23 @@ const PricingView: React.FC = () => {
     const { user, token, refreshUser } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const userTier = user?.membership_tier ?? 0;
+
+    const [tierPrices, setTierPrices] = useState<Record<number, number>>({});
+    useEffect(() => {
+        fetch('/api/tiers')
+            .then(r => r.json())
+            .then((rows: { id: number; price_gbp: number }[]) => {
+                const map: Record<number, number> = {};
+                rows.forEach(r => { map[r.id] = r.price_gbp; });
+                setTierPrices(map);
+            })
+            .catch(() => {});
+    }, []);
+
+    const membershipTiers = membershipTiersMeta.map(t => ({
+        ...t,
+        price: t.id === 1 ? 'Free' : tierPrices[t.id] != null ? `£${tierPrices[t.id].toFixed(2)}` : '...',
+    }));
 
     const [loadingItem, setLoadingItem] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'error' } | null>(null);

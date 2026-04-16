@@ -107,6 +107,10 @@ function initDb() {
 
         // Migration: Manager DNA archetype
         db.run("ALTER TABLE users ADD COLUMN manager_dna TEXT", () => {});
+
+        // Migration: Auto-pilot
+        db.run("ALTER TABLE users ADD COLUMN autopilot_enabled INTEGER DEFAULT 0", () => {});
+        db.run("ALTER TABLE users ADD COLUMN autopilot_last_gw INTEGER DEFAULT 0", () => {});
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
 
@@ -194,8 +198,8 @@ function initDb() {
             // Seed default tiers (INSERT OR IGNORE so reruns are safe)
             const seed = [
                 [1, 'Free',       'Basic access — 1 analysis credit to get started.',                          1,  0.0],
-                [2, 'Co-Pilot',  'Monthly credits and full AI analysis to guide your FPL decisions.',         30,  4.99],
-                [3, 'Auto-Pilot','Maximum credits, priority analysis, and early access to new features.',    100,  9.99],
+                [2, 'Co-Pilot',  'Monthly credits and full AI analysis to guide your FPL decisions.',         30,  3.99],
+                [3, 'Auto-Pilot','Maximum credits, priority analysis, and early access to new features.',    100,  7.99],
             ];
             const stmt = db.prepare('INSERT OR IGNORE INTO tiers (id, name, description, monthly_credits, price_gbp) VALUES (?, ?, ?, ?, ?)');
             seed.forEach(row => stmt.run(row));
