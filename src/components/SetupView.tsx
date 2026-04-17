@@ -84,7 +84,7 @@ const SetupView: React.FC = () => {
                             make the agreed changes to your team securely and accurately.
                                   </p>
                                   <p className="text-gray-400 leading-relaxed">
-                                  Also, the connection must be made before switching Auto-Pilot on, once Auto-Pilot is switched on its just set and forget so you don't need to leave your device on.
+                                  Also, the connection must be made before activating Auto-Pilot, once activated it's just set and forget so you don't need to leave your device on.
                                     </p>
                     </div>
                 </div>

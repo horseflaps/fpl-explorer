@@ -18,7 +18,7 @@ interface DeadlineEvent {
 }
 
 export default function AutopilotView() {
-    const { user, token } = useAuth();
+    const { user, token, refreshUser } = useAuth();
     const navigate = useNavigate();
     const [status, setStatus] = useState<AutopilotStatus | null>(null);
     const [nextDeadline, setNextDeadline] = useState<DeadlineEvent | null>(null);
@@ -70,6 +70,7 @@ export default function AutopilotView() {
             const data = await res.json();
             if (!res.ok) { setError(data.error || 'Failed to update'); return; }
             setStatus(prev => prev ? { ...prev, autopilot_enabled: data.autopilot_enabled } : null);
+            refreshUser();
         } catch {
             setError('Network error');
         } finally {
@@ -191,71 +192,88 @@ export default function AutopilotView() {
                         </p>
                     </div>
 
-                    {/* Credits / GWs covered */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                            <div className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Analysis Credits</div>
-                            <div className="text-2xl font-black text-white">{status.credits}</div>
-                            <div className="text-xs text-gray-400 mt-1">remaining</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-                            <div className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">GWs Covered</div>
-                            <div className={`text-2xl font-black ${gwsRemaining > 0 ? 'text-[#00ff87]' : 'text-red-400'}`}>{gwsRemaining}</div>
-                            <div className="text-xs text-gray-400 mt-1">at 1 credit per GW</div>
-                        </div>
-                    </div>
-
-                    {gwsRemaining === 0 && (
-                        <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-                            <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
-                            <p className="text-red-300/80 text-sm leading-relaxed">
-                                You have no analysis credits remaining. Auto-pilot will not run until you top up. <button onClick={() => navigate('/pricing')} className="text-[#00ff87] font-bold underline">Get more credits →</button>
-                            </p>
-                        </div>
-                    )}
-
-                    {/* Next run + remaining deadlines dropdown */}
-                    {nextDeadline && (
-                        <div className="rounded-xl border border-slate-700 bg-slate-900/60 overflow-hidden">
-                            <div className="p-4 space-y-3">
-                                <div className="text-xs text-gray-500 uppercase tracking-widest font-bold">Next Scheduled Run</div>
-                                <div className="flex items-start gap-3">
-                                    <Clock size={16} className="text-[#02efff] shrink-0 mt-0.5" />
-                                    <div>
-                                        <div className="text-white font-bold text-sm">GW{nextDeadline.gw}</div>
-                                        <div className="text-gray-400 text-xs mt-0.5">Runs at: <span className="text-white font-semibold">{fmtDate(nextDeadline.runsAt)}</span></div>
-                                        <div className="text-gray-500 text-xs mt-0.5">Deadline: {fmtDate(nextDeadline.deadline)}</div>
-                                    </div>
+                    {/* Credits coverage — 2 cards */}
+                    {(() => {
+                        const allDeadlines = nextDeadline ? [nextDeadline, ...remainingDeadlines] : [];
+                        const lastCovered = gwsRemaining > 0 ? allDeadlines[gwsRemaining - 1] : null;
+                        return (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className={`rounded-xl border bg-slate-900/60 p-4 ${gwsRemaining === 0 ? 'border-red-500/30' : 'border-slate-700'}`}>
+                                    <div className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">GWs Covered</div>
+                                    <div className={`text-2xl font-black ${gwsRemaining > 0 ? 'text-[#00ff87]' : 'text-red-400'}`}>{gwsRemaining}</div>
+                                    <div className="text-xs text-gray-400 mt-1">{status.credits} {status.credits === 1 ? 'credit' : 'credits'} remaining</div>
+                                    {gwsRemaining === 0 && (
+                                        <button onClick={() => navigate('/pricing')} className="text-[#00ff87] text-xs font-bold mt-2">Get more →</button>
+                                    )}
+                                </div>
+                                <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+                                    <div className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Credits Run Out After</div>
+                                    {lastCovered ? (
+                                        <>
+                                            <div className="text-2xl font-black text-white">GW{lastCovered.gw}</div>
+                                            <div className="text-xs text-gray-400 mt-1">{lastCovered.deadline.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+                                        </>
+                                    ) : (
+                                        <div className="text-sm font-bold text-red-400 mt-1">No coverage</div>
+                                    )}
                                 </div>
                             </div>
+                        );
+                    })()}
 
-                            {remainingDeadlines.length > 0 && (
-                                <>
-                                    <button
-                                        onClick={() => setShowAllDeadlines(v => !v)}
-                                        className="w-full flex items-center justify-between px-4 py-2.5 border-t border-slate-700/60 text-xs text-gray-500 hover:text-gray-300 hover:bg-slate-800/40 transition-colors"
-                                    >
-                                        <span>{showAllDeadlines ? 'Hide' : `Show all ${remainingDeadlines.length} remaining deadlines`}</span>
-                                        {showAllDeadlines ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                    </button>
-
-                                    {showAllDeadlines && (
-                                        <div className="border-t border-slate-700/60 divide-y divide-slate-700/40 max-h-72 overflow-y-auto">
-                                            {remainingDeadlines.map(d => (
-                                                <div key={d.gw} className="flex items-center justify-between px-4 py-2.5">
-                                                    <span className="text-white font-semibold text-xs">GW{d.gw}</span>
-                                                    <div className="text-right">
-                                                        <div className="text-gray-400 text-xs">Runs: {fmtDate(d.runsAt)}</div>
-                                                        <div className="text-gray-600 text-xs">Deadline: {fmtDate(d.deadline)}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
+                    {/* Next run + remaining deadlines dropdown */}
+                    {nextDeadline && (() => {
+                        const allDeadlines = [nextDeadline, ...remainingDeadlines];
+                        const lastCoveredGw = gwsRemaining > 0 ? allDeadlines[gwsRemaining - 1]?.gw : null;
+                        return (
+                            <div className="rounded-xl border border-slate-700 bg-slate-900/60 overflow-hidden">
+                                <div className="p-4 space-y-3">
+                                    <div className="text-xs text-gray-500 uppercase tracking-widest font-bold">Next Scheduled Run</div>
+                                    <div className="flex items-start gap-3">
+                                        <Clock size={16} className="text-[#02efff] shrink-0 mt-0.5" />
+                                        <div>
+                                            <div className="text-white font-bold text-sm">GW{nextDeadline.gw}</div>
+                                            <div className="text-gray-400 text-xs mt-0.5">Runs at: <span className="text-white font-semibold">{fmtDate(nextDeadline.runsAt)}</span></div>
+                                            <div className="text-gray-500 text-xs mt-0.5">Deadline: {fmtDate(nextDeadline.deadline)}</div>
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    )}
+                                    </div>
+                                </div>
+
+                                {remainingDeadlines.length > 0 && (
+                                    <>
+                                        <button
+                                            onClick={() => setShowAllDeadlines(v => !v)}
+                                            className="w-full flex items-center justify-between px-4 py-2.5 border-t border-slate-700/60 text-xs text-gray-500 hover:text-gray-300 hover:bg-slate-800/40 transition-colors"
+                                        >
+                                            <span>{showAllDeadlines ? 'Hide' : `Show all ${remainingDeadlines.length} remaining deadlines`}</span>
+                                            {showAllDeadlines ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                        </button>
+
+                                        {showAllDeadlines && (
+                                            <div className="border-t border-slate-700/60 divide-y divide-slate-700/40 max-h-72 overflow-y-auto">
+                                                {remainingDeadlines.map(d => {
+                                                    const isCutoff = d.gw === lastCoveredGw;
+                                                    const isUncovered = lastCoveredGw !== null && d.gw > lastCoveredGw;
+                                                    return (
+                                                        <div key={d.gw} className={`flex items-center justify-between px-4 py-2.5 ${isUncovered ? 'opacity-40' : ''} ${isCutoff ? 'bg-amber-500/5 border-l-2 border-amber-400' : ''}`}>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`font-semibold text-xs ${isCutoff ? 'text-amber-300' : 'text-white'}`}>GW{d.gw}</span>
+                                                                {isCutoff && <span className="text-amber-400 text-xs font-bold">← credits run out</span>}
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="text-gray-400 text-xs">Runs: {fmtDate(d.runsAt)}</div>
+                                                                <div className="text-gray-600 text-xs">Deadline: {fmtDate(d.deadline)}</div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     {/* Last run */}
                     {status.autopilot_last_gw > 0 && (

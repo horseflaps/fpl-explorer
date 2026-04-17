@@ -9,6 +9,7 @@ interface User {
     credits: number;
     manager_dna: string | null;
     subscription_started_at: string | null;
+    autopilot_enabled: boolean;
 }
 
 interface AuthContextType {

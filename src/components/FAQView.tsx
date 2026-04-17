@@ -28,7 +28,7 @@ const faqs = [
     },
     {
         q: 'What is the difference between the Scout, Co-Pilot, and Autopilot tiers?',
-        a: `All three tiers include full AI analysis. The difference is how much the Wolf does for you.\n\nScout (Free)\n\n- Full AI analysis on demand\n- Detailed transfer recommendations, captain picks, and chip advice\n- You apply transfers manually on the FPL website\n\nCo-Pilot (£5/month)\n\n- Everything in Scout\n- Trigger analysis whenever you're ready\n- The Wolf applies transfers directly to your FPL account\n- You review and approve every move before it's confirmed\n\nAutopilot (£10/month)\n\n- Everything in Co-Pilot\n- Fully automated — no action required from you\n- The Wolf runs analysis before every gameweek deadline and applies the optimal transfers automatically\n- A detailed email summary of every decision is sent after each run`,
+        a: `All three tiers include full AI analysis. The difference is how much the Wolf does for you.\n\nScout (Free)\n\n- Full AI analysis on demand\n- Detailed transfer recommendations, captain picks, and chip advice\n- You apply transfers manually on the FPL website\n\nCo-Pilot (£3.99/month)\n\n- Everything in Scout\n- Trigger analysis whenever you're ready\n- The Wolf applies transfers directly to your FPL account\n- You review and approve every move before it's confirmed\n\nAutopilot (£7.99/month)\n\n- Everything in Co-Pilot\n- Fully automated — no action required from you\n- The Wolf runs analysis before every gameweek deadline and applies the optimal transfers automatically\n- A detailed email summary of every decision is sent after each run`,
     },
     {
         q: 'Does the platform work on mobile?',

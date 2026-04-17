@@ -8,7 +8,7 @@ const HomeView: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const activateToken = searchParams.get('activate');
     const [activateStatus, setActivateStatus] = useState<'idle' | 'success' | 'error' | 'needs-login'>('idle');
-    const { isAuthenticated, token, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen } = useAuth();
+    const { isAuthenticated, token, extensionDetected, fplConnected, fplEntryId, setIsLoginOpen, user } = useAuth();
 
     useEffect(() => {
         if (!activateToken) return;
@@ -89,7 +89,22 @@ const HomeView: React.FC = () => {
             );
         }
 
-        // State 4: Logged In & Connected -> "Get Analysis"
+        // State 4: Logged In & Connected -> "Get Analysis" (or AP active)
+        if (user?.autopilot_enabled) {
+            return (
+                <button
+                    onClick={() => navigate('/autopilot')}
+                    className="px-8 py-4 bg-[#00ff87] text-[#37003c] font-black text-lg uppercase tracking-wider rounded-xl hover:bg-[#00ff87]/90 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)] flex items-center gap-3"
+                >
+                    <span className="relative flex h-3 w-3 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#37003c] opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#37003c]" />
+                    </span>
+                    Auto-Pilot Active
+                </button>
+            );
+        }
+
         return (
             <button
                 onClick={() => navigate('/analyse')}

@@ -204,6 +204,9 @@ function initDb() {
             const stmt = db.prepare('INSERT OR IGNORE INTO tiers (id, name, description, monthly_credits, price_gbp) VALUES (?, ?, ?, ?, ?)');
             seed.forEach(row => stmt.run(row));
             stmt.finalize();
+            // Always keep prices in sync with the canonical seed values
+            db.run('UPDATE tiers SET price_gbp = 3.99 WHERE id = 2');
+            db.run('UPDATE tiers SET price_gbp = 7.99 WHERE id = 3');
         });
 
         // News Articles Table

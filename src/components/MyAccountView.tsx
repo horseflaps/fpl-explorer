@@ -51,10 +51,22 @@ const MyAccountView: React.FC = () => {
         window.location.reload();
     };
 
+    const [tierPrices, setTierPrices] = useState<Record<number, string>>({});
+    useEffect(() => {
+        fetch('/api/tiers')
+            .then(r => r.json())
+            .then((rows: { id: number; price_gbp: number }[]) => {
+                const map: Record<number, string> = {};
+                rows.forEach(r => { map[r.id] = `£${r.price_gbp.toFixed(2)}/mo`; });
+                setTierPrices(map);
+            })
+            .catch(() => {});
+    }, []);
+
     const tierInfo = [
-        { tier: 1, label: 'Scout',    sub: 'Free',      icon: Zap,   color: 'text-gray-400' },
-        { tier: 2, label: 'Co-Pilot', sub: '£5/mo',     icon: Bot,   color: 'text-[#02efff]' },
-        { tier: 3, label: 'Autopilot',sub: '£10/mo',    icon: Brain, color: 'text-fpl-green' },
+        { tier: 1, label: 'Scout',    sub: 'Free',                    icon: Zap,   color: 'text-gray-400' },
+        { tier: 2, label: 'Co-Pilot', sub: tierPrices[2] ?? '...',    icon: Bot,   color: 'text-[#02efff]' },
+        { tier: 3, label: 'Autopilot',sub: tierPrices[3] ?? '...',    icon: Brain, color: 'text-fpl-green' },
     ][( user?.membership_tier ?? 1) - 1];
     const [confirmLogout, setConfirmLogout] = useState(false);
     const [fplTeamName, setFplTeamName] = useState<string | null>(null);

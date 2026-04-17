@@ -170,6 +170,13 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                                                 {isAutopilotLocked && (
                                                     <Lock size={13} className={`shrink-0 ${isActive ? 'text-slate-900/60' : 'text-gray-600'}`} />
                                                 )}
+                                                {item.label === 'Auto-Pilot' && user?.autopilot_enabled && (
+                                                    <span className="relative flex h-3 w-3 shrink-0">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00ff87] opacity-90" />
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00ff87] opacity-60 animation-delay-150" />
+                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#00ff87]" />
+                                                    </span>
+                                                )}
                                             </>
                                         )}
                                     </NavLink>
