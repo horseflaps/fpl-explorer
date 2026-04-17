@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader2, Trash2, ArrowRight, Shirt, Activity, Search, X, Wifi } from 'lucide-react';
+import { Loader2, Trash2, ArrowRight, Shirt, Activity, Search, X, Wifi, Brain } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -220,40 +220,69 @@ const MyTeamsView: React.FC = () => {
                             <p className="text-xl font-bold mb-2">No Saved Teams</p>
                             <p>Go to the Analyse page and click "Save Team" to add one here.</p>
                         </div>
-                    ) : (
-                        <div className="grid gap-4">
-                            {teams.map((team) => {
-                                const data = JSON.parse(team.team_data);
-                                const isConnected = fplConnected && fplEntryId !== null && data.entry_id === fplEntryId;
-                                return (
-                                    <div
-                                        key={team.id}
-                                        onClick={() => navigate(`/analyse?entry=${data.entry_id}`)}
-                                        className={`bg-slate-900/50 border rounded-xl p-4 flex items-center justify-between hover:bg-slate-800 transition-all cursor-pointer group ${isConnected ? 'border-[#00ff87]/50 hover:border-[#00ff87]' : 'border-slate-700 hover:border-[#00ff87]/50'}`}
-                                    >
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="font-bold text-white text-lg group-hover:text-[#00ff87] transition-colors">{team.name.replace(/\s*\(GW\d+\)$/, '')}</div>
-                                                {isConnected && (
-                                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00ff87]/10 border border-[#00ff87]/30 text-[#00ff87] text-xs font-bold">
-                                                        <Wifi size={10} /> Connected
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-gray-500">Saved on {new Date(team.created_at).toLocaleDateString()}</div>
-                                            <div className="text-xs text-gray-400 mt-1">Manager: {data.manager || 'Unknown'}</div>
+                    ) : (() => {
+                        const connectedTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id === fplEntryId; } catch { return false; } });
+                        const otherTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id !== fplEntryId; } catch { return true; } });
+
+                        const renderTeamCard = (team: typeof teams[0]) => {
+                            const data = JSON.parse(team.team_data);
+                            const isConnected = fplConnected && fplEntryId !== null && data.entry_id === fplEntryId;
+                            const isAutopilot = isConnected && user?.autopilot_enabled;
+                            const connectedAt = isConnected && user?.fpl_connected_at
+                                ? new Date(user.fpl_connected_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                : null;
+                            return (
+                                <div
+                                    key={team.id}
+                                    onClick={() => navigate(`/analyse?entry=${data.entry_id}`)}
+                                    className={`bg-slate-900/50 border rounded-xl p-4 flex items-center justify-between hover:bg-slate-800 transition-all cursor-pointer group ${isConnected ? 'border-[#00ff87]/50 hover:border-[#00ff87]' : 'border-slate-700 hover:border-[#00ff87]/50'}`}
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="font-bold text-white text-lg group-hover:text-[#00ff87] transition-colors">{team.name.replace(/\s*\(GW\d+\)$/, '')}</div>
+                                            {isConnected && (
+                                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00ff87]/10 border border-[#00ff87]/30 text-[#00ff87] text-xs font-bold">
+                                                    <Wifi size={10} /> Connected
+                                                </span>
+                                            )}
+                                            {isAutopilot && (
+                                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#02efff]/10 border border-[#02efff]/30 text-[#02efff] text-xs font-bold">
+                                                    <Brain size={10} /> Auto-Pilot
+                                                </span>
+                                            )}
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <button onClick={(e) => { e.stopPropagation(); setTeamToDelete(team.id); }} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all" title="Remove Team">
-                                                <Trash2 size={18} />
-                                            </button>
-                                            <ArrowRight className="text-gray-600 group-hover:text-[#00ff87] transition-colors" />
-                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">Manager: {data.manager || 'Unknown'}</div>
+                                        {connectedAt && (
+                                            <div className="text-xs text-gray-500 mt-0.5">Last connected: {connectedAt}</div>
+                                        )}
                                     </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                                    <div className="flex items-center gap-3 ml-3">
+                                        <button onClick={(e) => { e.stopPropagation(); setTeamToDelete(team.id); }} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all" title="Remove Team">
+                                            <Trash2 size={18} />
+                                        </button>
+                                        <ArrowRight className="text-gray-600 group-hover:text-[#00ff87] transition-colors" />
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
+                            <div className="space-y-8">
+                                {connectedTeams.length > 0 && (
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Connected Teams</h3>
+                                        <div className="grid gap-4">{connectedTeams.map(renderTeamCard)}</div>
+                                    </div>
+                                )}
+                                {otherTeams.length > 0 && (
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Never Connected</h3>
+                                        <div className="grid gap-4">{otherTeams.map(renderTeamCard)}</div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </>
             )}
 

@@ -76,6 +76,9 @@ const PricingView: React.FC = () => {
     const { user, token, refreshUser } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const userTier = user?.membership_tier ?? 0;
+    const [activeSection, setActiveSection] = useState<'membership' | 'credits'>(
+        searchParams.get('tab') === 'credits' ? 'credits' : 'membership'
+    );
 
     const [tierPrices, setTierPrices] = useState<Record<number, number>>({});
     useEffect(() => {
@@ -167,7 +170,23 @@ const PricingView: React.FC = () => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in zoom-in duration-500 py-8">
+        <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in zoom-in duration-500 py-8">
+
+            {/* Inner section tabs */}
+            <div className="flex gap-1 bg-slate-900/60 border border-white/10 rounded-xl p-1 w-fit">
+                <button
+                    onClick={() => setActiveSection('membership')}
+                    className={`px-5 py-2 rounded-lg text-sm font-black uppercase tracking-wide transition-all ${activeSection === 'membership' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                    Membership Tiers
+                </button>
+                <button
+                    onClick={() => setActiveSection('credits')}
+                    className={`px-5 py-2 rounded-lg text-sm font-black uppercase tracking-wide transition-all ${activeSection === 'credits' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                    Analysis Credits
+                </button>
+            </div>
 
             {/* Error toast */}
             {toast && (
@@ -237,8 +256,8 @@ const PricingView: React.FC = () => {
             )}
 
             {/* Membership Tiers */}
-            <div>
-                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Membership</h2>
+            {activeSection === 'membership' && <div>
+                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Membership Tiers</h2>
                 <p className="text-gray-400 text-sm mb-6">Choose how much of the work you want the Wolf to handle.</p>
 
                 <div className="grid md:grid-cols-3 gap-5">
@@ -289,11 +308,11 @@ const PricingView: React.FC = () => {
                         );
                     })}
                 </div>
-            </div>
+            </div>}
 
             {/* Analysis Credits */}
-            <div>
-                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Analyse Team</h2>
+            {activeSection === 'credits' && <div>
+                <h2 className="text-3xl font-black text-white tracking-tight mb-1">Analysis Credits</h2>
                 <p className="text-gray-400 text-sm mb-6">Buy analysis credits in bulk and save. Credits never expire.</p>
 
                 <div className="bg-slate-900/50 border border-slate-700 rounded-xl overflow-hidden">
@@ -340,7 +359,7 @@ const PricingView: React.FC = () => {
                         <p className="text-center text-xs text-gray-600 py-3">Sign in to purchase credits.</p>
                     )}
                 </div>
-            </div>
+            </div>}
 
         </div>
     );

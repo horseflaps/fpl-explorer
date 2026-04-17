@@ -25,7 +25,8 @@
       "Bash(npm uninstall:*)",
       "Bash(curl:*)",
       "Bash(node -e \"require\\('./server.cjs'\\)\")",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(xargs grep *)"
     ]
   }
 }

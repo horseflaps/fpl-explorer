@@ -203,7 +203,7 @@ export default function AutopilotView() {
                                     <div className={`text-2xl font-black ${gwsRemaining > 0 ? 'text-[#00ff87]' : 'text-red-400'}`}>{gwsRemaining}</div>
                                     <div className="text-xs text-gray-400 mt-1">{status.credits} {status.credits === 1 ? 'credit' : 'credits'} remaining</div>
                                     {gwsRemaining === 0 && (
-                                        <button onClick={() => navigate('/pricing')} className="text-[#00ff87] text-xs font-bold mt-2">Get more →</button>
+                                        <button onClick={() => navigate('/pricing?tab=credits')} className="text-[#00ff87] text-xs font-bold mt-2">Get more →</button>
                                     )}
                                 </div>
                                 <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
