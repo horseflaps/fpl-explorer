@@ -348,7 +348,7 @@ const MyAccountView: React.FC = () => {
                         <span className={`text-sm font-semibold ${(user.credits ?? 0) > 0 ? 'text-fpl-green' : 'text-red-400'}`}>
                             {user.credits ?? 0} remaining
                         </span>
-                        <button onClick={() => navigate('/pricing')} className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
+                        <button onClick={() => navigate('/pricing?tab=credits')} className="px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20">
                             Buy Credits
                         </button>
                     </div>

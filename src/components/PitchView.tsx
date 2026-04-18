@@ -2899,7 +2899,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <p className="text-gray-400 text-xs mt-0.5">You have no credits remaining. Buy more to run a Wolf analysis.</p>
                             </div>
                         </div>
-                        <button className="shrink-0 px-5 py-2.5 bg-fpl-green/10 border border-fpl-green/30 text-fpl-green font-black text-xs uppercase tracking-wide rounded-xl hover:bg-fpl-green/20 transition-all">
+                        <button onClick={() => navigate('/pricing?tab=credits')} className="shrink-0 px-5 py-2.5 bg-fpl-green/10 border border-fpl-green/30 text-fpl-green font-black text-xs uppercase tracking-wide rounded-xl hover:bg-fpl-green/20 transition-all">
                             Buy Credits
                         </button>
                     </div>

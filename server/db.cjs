@@ -115,6 +115,9 @@ function initDb() {
         // Migration: Auto-pilot
         db.run("ALTER TABLE users ADD COLUMN autopilot_enabled INTEGER DEFAULT 0", () => {});
         db.run("ALTER TABLE users ADD COLUMN autopilot_last_gw INTEGER DEFAULT 0", () => {});
+
+        // Migration: FPL connection timestamp
+        db.run("ALTER TABLE users ADD COLUMN fpl_connected_at TEXT", () => {});
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
 

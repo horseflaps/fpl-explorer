@@ -249,8 +249,8 @@ app.get('/api/auth/me', (req, res) => {
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
         // Fetch fresh is_verified from DB so it reflects after email verification
-        db.get('SELECT is_verified, membership_tier, credits, manager_dna, subscription_started_at, autopilot_enabled FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
-            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1, credits: row?.credits ?? 1, manager_dna: row?.manager_dna || null, subscription_started_at: row?.subscription_started_at || null, autopilot_enabled: !!row?.autopilot_enabled } });
+        db.get('SELECT is_verified, membership_tier, credits, manager_dna, subscription_started_at, autopilot_enabled, fpl_connected_at FROM users WHERE id = ?', [decoded.id], (dbErr, row) => {
+            res.json({ user: { ...decoded, is_verified: row ? !!row.is_verified : decoded.is_verified, membership_tier: row?.membership_tier || decoded.membership_tier || 1, credits: row?.credits ?? 1, manager_dna: row?.manager_dna || null, subscription_started_at: row?.subscription_started_at || null, autopilot_enabled: !!row?.autopilot_enabled, fpl_connected_at: row?.fpl_connected_at || null } });
         });
     });
 });
@@ -962,8 +962,8 @@ app.post('/api/fpl/token', async (req, res) => {
         } catch {}
     }
 
-    const updates = ['fpl_session = ?', 'fpl_refresh_token = ?', 'fpl_expires_at = ?', 'fpl_entry_id = ?'];
-    const params = [fpl_token, fpl_refresh_token || null, fpl_expires_at || null, resolvedEntryId];
+    const updates = ['fpl_session = ?', 'fpl_refresh_token = ?', 'fpl_expires_at = ?', 'fpl_entry_id = ?', 'fpl_connected_at = ?'];
+    const params = [fpl_token, fpl_refresh_token || null, fpl_expires_at || null, resolvedEntryId, new Date().toISOString()];
     params.push(decoded.id);
 
     db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {

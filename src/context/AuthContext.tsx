@@ -10,6 +10,7 @@ interface User {
     manager_dna: string | null;
     subscription_started_at: string | null;
     autopilot_enabled: boolean;
+    fpl_connected_at: string | null;
 }
 
 interface AuthContextType {
@@ -115,6 +116,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             if (connected && !sessionStorage.getItem('fpl_modal_shown')) {
                                 setShowFplConnectedModal(true);
                                 sessionStorage.setItem('fpl_modal_shown', 'true');
+                            }
+                            // If not connected on initial check, reset extension state so it can auto-reconnect
+                            if (!connected) {
+                                window.dispatchEvent(new CustomEvent('fpw-reset-connection'));
                             }
                         } else {
                             // Subsequent checks — only fire on genuine transitions
