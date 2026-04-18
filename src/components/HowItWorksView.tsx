@@ -85,7 +85,7 @@ const HowItWorksView: React.FC = () => {
                 >
                     <div className="grid md:grid-cols-3 gap-5">
                         <Card icon={<Brain className="text-fpl-green w-6 h-6" />} title="AI-Powered Analysis">
-                            The Wolf uses Google's Gemini AI to analyse your squad, upcoming fixtures, player form, price changes, and your remaining free transfers — then gives you a concrete, explained recommendation.
+                            The Wolf analyses your squad, upcoming fixtures, player form, price changes, and your remaining free transfers — then gives you a concrete, explained recommendation.
                         </Card>
                         <Card icon={<Wifi className="text-[#02efff] w-6 h-6" />} title="Live FPL Sync" accent="[#02efff]">
                             Via a lightweight Chrome extension, the platform reads your FPL session in real time. Your team, chip status, transfer history, and league standings are always up to date — no manual entry.
@@ -151,6 +151,34 @@ const HowItWorksView: React.FC = () => {
                             </ul>
                         </div>
                     </div>
+                    {/* Connected vs not connected */}
+                    <div className="grid md:grid-cols-2 gap-5 mb-6">
+                        <div className="bg-[#00ff87]/5 border border-[#00ff87]/30 rounded-2xl p-6 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Wifi className="text-[#00ff87] w-4 h-4 shrink-0" />
+                                <p className="text-white font-bold text-sm uppercase tracking-wide">Connected via extension</p>
+                            </div>
+                            <p className="text-gray-400 text-sm leading-relaxed">
+                                When you're connected through the Chrome extension, the Wolf reads your live FPL session directly. Your current squad — including any transfers you've made since the last deadline, your bank balance, free transfers, and chip status — is loaded automatically every time you open the Analyse tab. There's nothing to search for and nothing to update manually.
+                            </p>
+                            <p className="text-gray-500 text-xs leading-relaxed border-t border-white/5 pt-3">
+                                <span className="text-[#00ff87] font-semibold">Your password is never touched.</span> The extension reads your active browser session — the same token that already has you logged in to FPL — and passes it securely to the Wolf. Your login credentials are never seen, stored, or transmitted by this platform, and the extension cannot access any website other than fantasy.premierleague.com.
+                            </p>
+                        </div>
+                        <div className="bg-slate-800/40 border border-white/10 rounded-2xl p-6 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Search className="text-[#02efff] w-4 h-4 shrink-0" />
+                                <p className="text-white font-bold text-sm uppercase tracking-wide">Not connected — searching manually</p>
+                            </div>
+                            <p className="text-gray-400 text-sm leading-relaxed">
+                                If you're not using the extension, you can still analyse your team by searching for it by name, ID, or league. However, <span className="text-white font-semibold">the squad shown will reflect your team as it stood at the last gameweek deadline</span> — not any transfers you've made in the current window.
+                            </p>
+                            <p className="text-gray-400 text-sm leading-relaxed">
+                                If you've already made transfers on the FPL site this week, those changes won't appear here until the next deadline passes. To get an accurate analysis right now, connect using the extension, or use the <span className="text-white font-semibold">Edit</span> button on the Analyse tab to manually adjust the squad to match your actual current team before running the Wolf.
+                            </p>
+                        </div>
+                    </div>
+
                     <div className="bg-fpl-green/5 border border-fpl-green/20 rounded-2xl p-6 text-sm text-gray-300 leading-relaxed">
                         <strong className="text-fpl-green">How the AI output works:</strong> After hitting "Unleash the Wolf", the Wolf generates a detailed written recommendation — covering which transfers to make, who to captain, whether to play a chip, and why. The reasoning is shown in full so you can agree or disagree with each point before acting.
                     </div>

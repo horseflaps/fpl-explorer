@@ -289,8 +289,8 @@ app.post('/api/wolf-analysis', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
 
-    // AI_PROVIDER: "claude" (default) or "gemini" — change env var to switch providers
-    const AI_PROVIDER = (process.env.AI_PROVIDER || 'claude').toLowerCase();
+    // AI_PROVIDER: "gemini" (default) or "claude" — change env var to switch providers
+    const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -322,7 +322,7 @@ app.post('/api/wolf-analysis', async (req, res) => {
                     signal: aiController.signal,
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.7, maxOutputTokens: 65536 },
+                        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
                     }),
                 }
             );
@@ -360,7 +360,7 @@ app.post('/api/wolf-analysis', async (req, res) => {
         const text = AI_PROVIDER === 'gemini'
             ? (aiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '')
             : (aiData?.content?.[0]?.text ?? '');
-        res.json({ result: text });
+        res.json({ result: text, provider: AI_PROVIDER });
     } catch (error) {
         console.error('[Wolf] Fetch error:', error.message);
         // Refund credit on network error
@@ -548,7 +548,7 @@ app.get('/api/user/analyses', (req, res) => {
     const token = authHeader.split(' ')[1];
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
-        db.all('SELECT id, team_name, entry_id, gameweek, analysis_text, created_at FROM analyses WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [decoded.id], (err, rows) => {
+        db.all('SELECT id, team_name, entry_id, gameweek, analysis_text, ai_provider, created_at FROM analyses WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [decoded.id], (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
             res.json(rows);
         });
@@ -561,10 +561,10 @@ app.post('/api/user/analyses', (req, res) => {
     const token = authHeader.split(' ')[1];
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) return res.status(401).json({ error: 'Invalid token' });
-        const { team_name, entry_id, gameweek, analysis_text } = req.body;
+        const { team_name, entry_id, gameweek, analysis_text, ai_provider } = req.body;
         if (!analysis_text) return res.status(400).json({ error: 'analysis_text required' });
-        db.run('INSERT INTO analyses (user_id, team_name, entry_id, gameweek, analysis_text) VALUES (?, ?, ?, ?, ?)',
-            [decoded.id, team_name || 'Unknown', entry_id || null, gameweek || null, analysis_text],
+        db.run('INSERT INTO analyses (user_id, team_name, entry_id, gameweek, analysis_text, ai_provider) VALUES (?, ?, ?, ?, ?, ?)',
+            [decoded.id, team_name || 'Unknown', entry_id || null, gameweek || null, analysis_text, ai_provider || null],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 res.status(201).json({ id: this.lastID });
@@ -2117,7 +2117,7 @@ async function runAutopilotForUser(user, bootstrapData, nextGw) {
         const prompt = buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, user.manager_dna, recentTransferHistory, nextGw);
 
         const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-        const aiProvider = (process.env.AI_PROVIDER || 'claude').toLowerCase();
+        const aiProvider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
         let analysisText;
 
         if (aiProvider === 'gemini') {
@@ -2155,8 +2155,8 @@ async function runAutopilotForUser(user, bootstrapData, nextGw) {
         db.run('UPDATE users SET autopilot_last_gw = ? WHERE id = ?', [nextGw, user.id], () => {});
 
         // 11. Save analysis to history
-        db.run('INSERT INTO analyses (user_id, team_name, entry_id, gameweek, analysis_text) VALUES (?,?,?,?,?)',
-            [user.id, entryData.name, user.fpl_entry_id, nextGw, analysisText], () => {});
+        db.run('INSERT INTO analyses (user_id, team_name, entry_id, gameweek, analysis_text, ai_provider) VALUES (?,?,?,?,?,?)',
+            [user.id, entryData.name, user.fpl_entry_id, nextGw, analysisText, aiProvider], () => {});
 
         // 12. Generate PDF (non-fatal if fails)
         let pdfBuffer = null;

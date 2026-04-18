@@ -224,6 +224,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     // AI State
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiAnalysisText, setAiAnalysisText] = useState<string | null>(null);
+    const [aiProvider, setAiProvider] = useState<string | null>(null);
     const [loadingQuote, setLoadingQuote] = useState<{ quote: string; author: string } | null>(null);
     const [quoteVisible, setQuoteVisible] = useState(true);
     const [wolfPlan, setWolfPlan] = useState<WolfPlan | null>(null);
@@ -915,9 +916,10 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                                 <Users className="h-5 w-5 text-gray-500" />
                                             </div>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="numeric"
                                                 value={leagueId}
-                                                onChange={(e) => setLeagueId(e.target.value)}
+                                                onChange={(e) => setLeagueId(e.target.value.replace(/\D/g, ''))}
                                                 placeholder="e.g. 314"
                                                 className="w-full bg-slate-900 border border-slate-700 text-white rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-fpl-green focus:ring-1 focus:ring-fpl-green transition-all"
                                             />
@@ -1133,7 +1135,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             const activeChipNow = picksToUse.active_chip ?? null;
             const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null, lastExecutedPlan, transfers, prevPlan, activeChipNow);
             setLastExecutedPlan(null); // consume — only warn once per execute
-            const result = await fetchGeminiAnalysis(prompt, token ?? '');
+            const { text: result, provider: resultProvider } = await fetchGeminiAnalysis(prompt, token ?? '');
+            setAiProvider(resultProvider);
 
             // Parse structured plan from response — try multiple strategies
             let displayText = result;
@@ -1219,6 +1222,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         entry_id: entryData.id,
                         gameweek: picksToUse.entry_history?.event ?? 0,
                         analysis_text: displayText,
+                        ai_provider: resultProvider,
                     })
                 }).catch(e => console.warn('[DEV] Failed to save analysis:', e));
             }
@@ -2013,7 +2017,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const renderListView = () => {
         if (!picksData) return null;
 
-        const allPicks = picksData.picks;
+        const allPicks = (isEditingTeam && editedPicks ? editedPicks : picksData).picks;
         const gks = allPicks.filter(p => getPlayer(p.element)?.element_type === 1);
         const defs = allPicks.filter(p => getPlayer(p.element)?.element_type === 2);
         const mids = allPicks.filter(p => getPlayer(p.element)?.element_type === 3);
@@ -2076,37 +2080,75 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 </div>
 
                 {/* Table Header */}
-                <div className="grid grid-cols-[3fr,repeat(13,1fr)] gap-0 text-center text-xs md:text-sm text-white/40 font-black uppercase border-b border-white/10 pb-2 mb-4">
-                    <div className="text-left pl-2">Player</div>
-                    <div>{renderHeader('Pts')}</div>
-                    <div>{renderHeader('MP')}</div>
-                    <div>{renderHeader('GS')}</div>
-                    <div>{renderHeader('A')}</div>
-                    <div>{renderHeader('CS')}</div>
-                    <div>{renderHeader('GC')}</div>
-                    <div>{renderHeader('OG')}</div>
-                    <div>{renderHeader('PS')}</div>
-                    <div>{renderHeader('PM')}</div>
-                    <div>{renderHeader('YC')}</div>
-                    <div>{renderHeader('RC')}</div>
-                    <div>{renderHeader('S')}</div>
-                    <div>{renderHeader('B')}</div>
-                </div>
+                {isEditingTeam ? (
+                    <div className="grid grid-cols-[3fr,1fr,1fr,auto] gap-0 text-center text-xs md:text-sm text-white/40 font-black uppercase border-b border-white/10 pb-2 mb-4">
+                        <div className="text-left pl-2">Player</div>
+                        <div>Price</div>
+                        <div>Form</div>
+                        <div className="w-8" />
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-[3fr,repeat(13,1fr)] gap-0 text-center text-xs md:text-sm text-white/40 font-black uppercase border-b border-white/10 pb-2 mb-4">
+                        <div className="text-left pl-2">Player</div>
+                        <div>{renderHeader('Pts')}</div>
+                        <div>{renderHeader('MP')}</div>
+                        <div>{renderHeader('GS')}</div>
+                        <div>{renderHeader('A')}</div>
+                        <div>{renderHeader('CS')}</div>
+                        <div>{renderHeader('GC')}</div>
+                        <div>{renderHeader('OG')}</div>
+                        <div>{renderHeader('PS')}</div>
+                        <div>{renderHeader('PM')}</div>
+                        <div>{renderHeader('YC')}</div>
+                        <div>{renderHeader('RC')}</div>
+                        <div>{renderHeader('S')}</div>
+                        <div>{renderHeader('B')}</div>
+                    </div>
+                )}
 
                 {groups.map((group) => (
                     <div key={group.title} className="mb-6">
                         <h3 className="text-white font-bold text-sm mb-2 pl-2 border-l-4 border-[#00ff87]">{group.title}</h3>
                         <div className="space-y-1">
                             {group.players.map((pick) => {
+                                const isGhost = ghostPlayerIds.includes(pick.element);
                                 const player = getPlayer(pick.element);
                                 const team = player ? getTeam(player.team) : null;
                                 const stats = liveStats[pick.element];
                                 const isSub = pick.position > 11;
+                                const isOut = !isEditingTeam && picksData && !picksData.picks.find(p => p.element === pick.element);
+                                const isNew = !isEditingTeam && isReconstructed && transfers.some(t => t.element_in === pick.element && t.event === selectedGw);
+
+                                // Ghost slot in edit mode — click to open player picker
+                                if (isGhost) {
+                                    const posType = player?.element_type;
+                                    const posLabel = ['', 'GKP', 'DEF', 'MID', 'FWD'][posType ?? 0];
+                                    return (
+                                        <div
+                                            key={pick.element}
+                                            onClick={() => { setSwapSource(null); setShowPlayerPicker(true); }}
+                                            className={`grid ${isEditingTeam ? 'grid-cols-[3fr,1fr,1fr,auto]' : 'grid-cols-[3fr,repeat(13,1fr)]'} gap-0 items-center py-3 border-b border-white/5 cursor-pointer hover:bg-[#00ff87]/5 transition-colors ${isSub ? 'opacity-60' : ''}`}
+                                        >
+                                            <div className="flex items-center gap-3 pl-2">
+                                                <div className="w-8 h-8 rounded-full border-2 border-dashed border-[#00ff87]/50 flex items-center justify-center">
+                                                    <span className="text-[#00ff87] text-lg font-black">+</span>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[#00ff87] font-bold text-sm">Select {posLabel}</div>
+                                                    <div className="text-white/30 text-xs">Tap to choose replacement</div>
+                                                </div>
+                                            </div>
+                                            <div className="text-center text-white/20 text-xs">—</div>
+                                            <div className="text-center text-white/20 text-xs">—</div>
+                                            <div className="w-8" />
+                                        </div>
+                                    );
+                                }
 
                                 if (!player || !team) return null;
 
                                 return (
-                                    <div key={pick.element} className={`grid grid-cols-[3fr,repeat(13,1fr)] gap-0 items-center py-3 text-center text-sm md:text-base border-b border-white/5 hover:bg-white/5 transition-colors ${isSub ? 'opacity-70' : ''}`}>
+                                    <div key={pick.element} className={`grid ${isEditingTeam ? 'grid-cols-[3fr,1fr,1fr,auto]' : 'grid-cols-[3fr,repeat(13,1fr)]'} gap-0 items-center py-3 text-center text-sm md:text-base border-b border-white/5 hover:bg-white/5 transition-colors ${isSub ? 'opacity-70' : ''}`}>
                                         {/* Player Info */}
                                         <div className="flex items-center gap-3 text-left pl-2 relative">
                                             {isSub && <span className="absolute -left-2 text-[10px] text-yellow-400 rotate-90 origin-right">SUB</span>}
@@ -2122,28 +2164,44 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <div>
                                                 <div className="flex items-center gap-2">
                                                     <div className="font-bold text-white text-base leading-tight">{player.web_name}</div>
-                                                    {isReconstructed && transfers.some(t => t.element_in === pick.element && t.event === selectedGw) && (
-                                                        <span className="text-[8px] font-black bg-[#00ff87] text-[#37003c] px-1 rounded-sm">NEW</span>
-                                                    )}
+                                                    {isNew && <span className="text-[8px] font-black bg-[#00ff87] text-[#37003c] px-1 rounded-sm">NEW</span>}
+                                                    {isOut && <span className="text-[8px] font-black bg-red-500 text-white px-1 rounded-sm">OUT</span>}
                                                 </div>
                                                 <div className="text-[10px] md:text-[11px] text-white/50 leading-none mt-0.5">{team.name} <span className="uppercase mx-1">{['', 'GKP', 'DEF', 'MID', 'FWD'][player.element_type]}</span></div>
                                             </div>
                                         </div>
 
-                                        {/* Stats */}
-                                        <div className="font-bold text-white text-lg leading-none">{stats?.total_points ?? 0}</div>
-                                        <div className="leading-none">{stats?.minutes ?? 0}</div>
-                                        <div className={`leading-none ${stats?.goals_scored ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.goals_scored ?? 0}</div>
-                                        <div className={`leading-none ${stats?.assists ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.assists ?? 0}</div>
-                                        <div className={`leading-none ${stats?.clean_sheets ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.clean_sheets ?? 0}</div>
-                                        <div className="leading-none">{stats?.goals_conceded ?? 0}</div>
-                                        <div className={`leading-none ${stats?.own_goals ? 'text-red-400 font-bold' : ''}`}>{stats?.own_goals ?? 0}</div>
-                                        <div className="leading-none">{stats?.penalties_saved ?? 0}</div>
-                                        <div className={`leading-none ${stats?.penalties_missed ? 'text-red-400 font-bold' : ''}`}>{stats?.penalties_missed ?? 0}</div>
-                                        <div className={`leading-none ${stats?.yellow_cards ? 'text-yellow-400 font-bold' : ''}`}>{stats?.yellow_cards ?? 0}</div>
-                                        <div className={`leading-none ${stats?.red_cards ? 'text-red-500 font-bold' : ''}`}>{stats?.red_cards ?? 0}</div>
-                                        <div className="leading-none">{stats?.saves ?? 0}</div>
-                                        <div className={`leading-none ${stats?.bonus ? 'text-[#02efff] font-bold' : ''}`}>{stats?.bonus ?? 0}</div>
+                                        {isEditingTeam ? (<>
+                                            {/* Price */}
+                                            <div className="text-center text-[#00ff87] font-bold text-sm">£{(player.now_cost / 10).toFixed(1)}m</div>
+                                            {/* Form */}
+                                            <div className="text-center text-white/60 text-sm">{player.form}</div>
+                                            {/* Remove button */}
+                                            <div className="flex items-center justify-center w-8">
+                                                <button
+                                                    onClick={() => setGhostPlayerIds(prev => [...prev, pick.element])}
+                                                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-full p-1 transition-colors"
+                                                    title="Remove player"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                </button>
+                                            </div>
+                                        </>) : (<>
+                                            {/* Stats */}
+                                            <div className="font-bold text-white text-lg leading-none">{stats?.total_points ?? 0}</div>
+                                            <div className="leading-none">{stats?.minutes ?? 0}</div>
+                                            <div className={`leading-none ${stats?.goals_scored ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.goals_scored ?? 0}</div>
+                                            <div className={`leading-none ${stats?.assists ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.assists ?? 0}</div>
+                                            <div className={`leading-none ${stats?.clean_sheets ? 'text-[#00ff87] font-bold' : ''}`}>{stats?.clean_sheets ?? 0}</div>
+                                            <div className="leading-none">{stats?.goals_conceded ?? 0}</div>
+                                            <div className={`leading-none ${stats?.own_goals ? 'text-red-400 font-bold' : ''}`}>{stats?.own_goals ?? 0}</div>
+                                            <div className="leading-none">{stats?.penalties_saved ?? 0}</div>
+                                            <div className={`leading-none ${stats?.penalties_missed ? 'text-red-400 font-bold' : ''}`}>{stats?.penalties_missed ?? 0}</div>
+                                            <div className={`leading-none ${stats?.yellow_cards ? 'text-yellow-400 font-bold' : ''}`}>{stats?.yellow_cards ?? 0}</div>
+                                            <div className={`leading-none ${stats?.red_cards ? 'text-red-500 font-bold' : ''}`}>{stats?.red_cards ?? 0}</div>
+                                            <div className="leading-none">{stats?.saves ?? 0}</div>
+                                            <div className={`leading-none ${stats?.bonus ? 'text-[#02efff] font-bold' : ''}`}>{stats?.bonus ?? 0}</div>
+                                        </>)}
                                     </div>
                                 );
                             })}
@@ -2171,7 +2229,14 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                             <div>
                                 <h2 className="text-2xl font-black text-white tracking-tight">THE WOLF'S DIAGNOSIS</h2>
-                                <p className="text-[#00ff87] text-xs font-bold uppercase tracking-widest">Alpha Wolf Mode</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <p className="text-[#00ff87] text-xs font-bold uppercase tracking-widest">Alpha Wolf Mode</p>
+                                    {aiProvider && (
+                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${aiProvider === 'gemini' ? 'text-blue-300 border-blue-500/40 bg-blue-500/10' : 'text-orange-300 border-orange-500/40 bg-orange-500/10'}`}>
+                                            {aiProvider === 'gemini' ? 'Gemini' : 'Claude'}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2283,81 +2348,98 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         </div>
                                     </div>
 
-                                    {/* Execute button */}
-                                    {/* If wildcard/freehit with no transfers — redirect to FPL website instead of a broken execute */}
-                                    {wolfPlan.chip && ['wildcard', 'freehit'].includes(wolfPlan.chip) && wolfPlan.transfers.length === 0 ? (
-                                        <a
-                                            href="https://fantasy.premierleague.com/"
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-black text-sm rounded-xl uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-yellow-500/20"
-                                        >
-                                            🌐 Rebuild Squad on FPL Website
-                                        </a>
-                                    ) : executeResult?.success ? (
-                                        <div className="space-y-2">
-                                            <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
-                                                ✓ Execution Successful!
-                                            </div>
-                                            {executeResult.skipped && executeResult.skipped.length > 0 && (
-                                                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 space-y-1">
-                                                    <p className="text-yellow-400 text-xs font-black uppercase tracking-wider">⚠️ {executeResult.skipped.length} transfer{executeResult.skipped.length > 1 ? 's' : ''} skipped (invalid):</p>
-                                                    {executeResult.skipped.map((r, i) => (
-                                                        <p key={i} className="text-yellow-300/80 text-xs">{r}</p>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : executeResult?.invalidPlan ? (
-                                        <div className="space-y-3">
-                                            <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-2">
-                                                <p className="text-red-400 font-black text-sm uppercase tracking-wider">⛔ Invalid Plan — Execution Blocked</p>
-                                                <p className="text-red-300/80 text-xs">The Wolf made an error in this plan. Re-run the analysis to get a corrected plan.</p>
-                                                <div className="space-y-1 pt-1">
-                                                    {executeResult.invalidPlan.map((r, i) => (
-                                                        <p key={i} className="text-red-300/70 text-xs font-mono">• {r}</p>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => { setExecuteResult(null); setWolfPlan(null); setAiAnalysisText(null); handleAnalyze(); }}
-                                                className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20"
-                                            >
-                                                Re-run Analysis
-                                            </button>
-                                        </div>
-                                    ) : (user?.membership_tier ?? 1) < 2 ? (
+                                    {/* Execute section */}
+                                    {(user?.membership_tier ?? 1) < 2 ? (
+                                        /* Tier 1 — upgrade prompt */
                                         <div className="w-full px-4 py-4 bg-slate-800/60 border border-slate-600/50 rounded-xl text-center space-y-2">
                                             <p className="text-gray-300 text-xs font-black uppercase tracking-wider">🔒 Execution requires Co-Pilot or Autopilot</p>
-                                            <p className="text-gray-500 text-xs">Tier 1 (Scout) can analyse but not execute transfers.</p>
+                                            <p className="text-gray-500 text-xs">Scout members can analyse but not execute transfers.</p>
                                             <a href="/pricing" className="inline-block text-fpl-green text-xs font-bold hover:underline mt-1">Upgrade your plan →</a>
                                         </div>
-                                    ) : !fplConnected ? (
-                                        <button
-                                            onClick={() => {
-                                                if (fplEntryId) {
-                                                    window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: localStorage.getItem('token') } }));
-                                                } else {
-                                                    setShowFplLoginModal(true);
-                                                }
-                                            }}
-                                            className="w-full py-3 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 font-black text-sm rounded-xl uppercase tracking-widest transition-all border border-yellow-500/30 flex items-center justify-center gap-2"
-                                        >
-                                            🔗 Connect FPL to Execute
-                                        </button>
-                                    ) : (
-                                        <>
-                                            {executeResult?.error && (
-                                                <p className="text-red-400 text-xs text-center mb-2">{executeResult.error}</p>
-                                            )}
-                                            <button
-                                                onClick={handleExecutePlan}
-                                                disabled={isExecuting}
-                                                className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
+                                    ) : isOwnTeam ? (
+                                        /* Connected + matching team — full execute path */
+                                        wolfPlan.chip && ['wildcard', 'freehit'].includes(wolfPlan.chip) && wolfPlan.transfers.length === 0 ? (
+                                            <a
+                                                href="https://fantasy.premierleague.com/"
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-black text-sm rounded-xl uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-yellow-500/20"
                                             >
-                                                {isExecuting ? <><Loader2 size={15} className="animate-spin" /> Applying...</> : '⚡ Execute Plan'}
+                                                🌐 Rebuild Squad on FPL Website
+                                            </a>
+                                        ) : executeResult?.success ? (
+                                            <div className="space-y-2">
+                                                <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
+                                                    ✓ Execution Successful!
+                                                </div>
+                                                {executeResult.skipped && executeResult.skipped.length > 0 && (
+                                                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 space-y-1">
+                                                        <p className="text-yellow-400 text-xs font-black uppercase tracking-wider">⚠️ {executeResult.skipped.length} transfer{executeResult.skipped.length > 1 ? 's' : ''} skipped (invalid):</p>
+                                                        {executeResult.skipped.map((r, i) => (
+                                                            <p key={i} className="text-yellow-300/80 text-xs">{r}</p>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : executeResult?.invalidPlan ? (
+                                            <div className="space-y-3">
+                                                <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-2">
+                                                    <p className="text-red-400 font-black text-sm uppercase tracking-wider">⛔ Invalid Plan — Execution Blocked</p>
+                                                    <p className="text-red-300/80 text-xs">The Wolf made an error in this plan. Re-run the analysis to get a corrected plan.</p>
+                                                    <div className="space-y-1 pt-1">
+                                                        {executeResult.invalidPlan.map((r, i) => (
+                                                            <p key={i} className="text-red-300/70 text-xs font-mono">• {r}</p>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setExecuteResult(null); setWolfPlan(null); setAiAnalysisText(null); handleAnalyze(); }}
+                                                    className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20"
+                                                >
+                                                    Re-run Analysis
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {executeResult?.error && (
+                                                    <p className="text-red-400 text-xs text-center mb-2">{executeResult.error}</p>
+                                                )}
+                                                <button
+                                                    onClick={handleExecutePlan}
+                                                    disabled={isExecuting}
+                                                    className="w-full py-3 bg-[#00ff87] hover:bg-[#00e87a] text-[#0d1f0f] font-black text-sm rounded-xl uppercase tracking-widest transition-all shadow-lg shadow-[#00ff87]/20 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
+                                                >
+                                                    {isExecuting ? <><Loader2 size={15} className="animate-spin" /> Applying...</> : '⚡ Execute Plan'}
+                                                </button>
+                                            </>
+                                        )
+                                    ) : (
+                                        /* Not own team — ghosted execute with connect affordance */
+                                        <div className="space-y-2">
+                                            <button
+                                                disabled
+                                                className="w-full py-3 bg-[#00ff87]/10 text-[#00ff87]/30 font-black text-sm rounded-xl uppercase tracking-widest border border-[#00ff87]/10 flex items-center justify-center gap-2 cursor-not-allowed"
+                                            >
+                                                ⚡ Execute Plan
                                             </button>
-                                        </>
+                                            <div className="flex items-center justify-between gap-3 px-1">
+                                                <p className="text-gray-500 text-xs">
+                                                    {fplEntryId && fplEntryId !== entryId
+                                                        ? 'Execute is only available for your connected team.'
+                                                        : 'Connect this team via the FPL extension to execute.'}
+                                                </p>
+                                                {/* Show connect button only when this entry matches their linked FPL ID but session has lapsed */}
+                                                {fplEntryId === entryId && !fplConnected && (
+                                                    <button
+                                                        onClick={() => window.dispatchEvent(new CustomEvent('fpw-reconnect', { detail: { fpwToken: localStorage.getItem('token') } }))}
+                                                        title="Reconnect FPL session"
+                                                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 text-xs font-black uppercase tracking-widest rounded-lg border border-yellow-500/30 transition-all"
+                                                    >
+                                                        <LogIn size={12} /> Connect
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
                             </div>
@@ -2895,7 +2977,10 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             {/* View Switching */}
             {view === 'list' ? (
-                <div className="pt-4">{renderListView()}</div>
+                <div className="flex items-start justify-center relative w-full">
+                    {renderPlayerPicker()}
+                    <div className="flex-1 pt-4">{renderListView()}</div>
+                </div>
             ) : (
                 <div className="flex items-start justify-center relative w-full">
                     {renderPlayerPicker()}

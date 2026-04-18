@@ -428,7 +428,7 @@ Rules for the JSON:
 `;
 };
 
-export const fetchGeminiAnalysis = async (prompt: string, token: string, retries = 3, delay = 1000): Promise<string> => {
+export const fetchGeminiAnalysis = async (prompt: string, token: string, retries = 3, delay = 1000): Promise<{ text: string; provider: string }> => {
     // Always go through the server — the Gemini API key lives server-side only.
     // The server checks credits, deducts atomically, then calls Gemini.
     // VITE_GEMINI_API_KEY is kept only as a local dev escape hatch and is never
@@ -436,7 +436,7 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
     // Local dev escape hatch — only Gemini supports direct browser calls (no CORS restriction).
     // Claude blocks browser-origin requests, so always proxy through the server for Claude.
     // VITE_AI_PROVIDER: "claude" (default) or "gemini"
-    const localProvider = (import.meta.env.VITE_AI_PROVIDER || 'claude').toLowerCase();
+    const localProvider = (import.meta.env.VITE_AI_PROVIDER || 'gemini').toLowerCase();
     const localGeminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     const localKey = localProvider === 'gemini' ? localGeminiKey : null;
     const isLocal = !!localKey;
@@ -455,7 +455,7 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         signal: controller.signal,
-                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 65536 } }),
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 8192 } }),
                     }
                 );
             } else {
@@ -494,7 +494,7 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
             if ((status === 503 || status === 429) && retries > 0) {
                 console.warn(`Wolf analysis overloaded (${status}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return fetchGeminiAnalysis(prompt, token, retries - 1, delay * 2);
+                return await fetchGeminiAnalysis(prompt, token, retries - 1, delay * 2);
             }
             const errorData = await response.json().catch(() => ({ error: response.statusText }));
             const message = errorData.error?.message || errorData.details || errorData.error || response.statusText;
@@ -503,11 +503,12 @@ export const fetchGeminiAnalysis = async (prompt: string, token: string, retries
 
         const data = await response.json();
         if (isLocal) {
-            return localProvider === 'gemini'
+            const text = localProvider === 'gemini'
                 ? (data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated.')
                 : (data.content?.[0]?.text || 'No analysis generated.');
+            return { text, provider: localProvider };
         }
-        return data.result || 'No analysis generated.';
+        return { text: data.result || 'No analysis generated.', provider: data.provider || 'gemini' };
     } catch (error: any) {
         clearTimeout(timeout);
         if (error.name === 'AbortError') throw new Error('Analysis timed out after 3 minutes. Please try again.');

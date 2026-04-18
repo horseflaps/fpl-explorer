@@ -18,6 +18,7 @@ interface SavedAnalysis {
     entry_id: number;
     gameweek: number;
     analysis_text: string;
+    ai_provider: string | null;
     created_at: string;
 }
 
@@ -278,8 +279,15 @@ const MyTeamsView: React.FC = () => {
                                         onClick={() => setExpandedAnalysis(expandedAnalysis === a.id ? null : a.id)}
                                     >
                                         <div>
-                                            <div className="font-bold text-white group-hover:text-[#00ff87] transition-colors">
-                                                {a.team_name} {a.gameweek ? `— GW${a.gameweek}` : ''}
+                                            <div className="flex items-center gap-2">
+                                                <div className="font-bold text-white group-hover:text-[#00ff87] transition-colors">
+                                                    {a.team_name} {a.gameweek ? `— GW${a.gameweek}` : ''}
+                                                </div>
+                                                {a.ai_provider && (
+                                                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${a.ai_provider === 'gemini' ? 'text-blue-300 border-blue-500/40 bg-blue-500/10' : 'text-orange-300 border-orange-500/40 bg-orange-500/10'}`}>
+                                                        {a.ai_provider === 'gemini' ? 'Gemini' : 'Claude'}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="text-xs text-gray-500">{new Date(a.created_at).toLocaleString()}</div>
                                         </div>

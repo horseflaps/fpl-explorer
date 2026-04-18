@@ -63,11 +63,15 @@ function initDb() {
             entry_id INTEGER,
             gameweek INTEGER,
             analysis_text TEXT,
+            ai_provider TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(id)
         )`, (err) => {
             if (err) console.error('[DB] Error creating analyses table:', err.message);
-            else console.log('[DB] Analyses table ready.');
+            else {
+                console.log('[DB] Analyses table ready.');
+                db.run(`ALTER TABLE analyses ADD COLUMN ai_provider TEXT`, () => {});
+            }
         });
 
         // Cached Lineups Table — stores the last live lineup per user+entry
