@@ -28,7 +28,8 @@
       "Bash(node:*)",
       "Bash(xargs grep *)",
       "Bash(ls Y:/Projects/FPL/src/components/*.tsx)",
-      "Bash(xargs -I{} basename {})"
+      "Bash(xargs -I{} basename {})",
+      "Bash(grep -n \"export default\\\\|return \\(\\\\|</div>$\" src/components/HowItWorksView.tsx)"
     ]
   }
 }

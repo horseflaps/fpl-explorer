@@ -49,11 +49,14 @@ function initDb() {
             name TEXT,
             team_data TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_connected_at DATETIME DEFAULT NULL,
             FOREIGN KEY(user_id) REFERENCES users(id)
         )`, (err) => {
             if (err) console.error('[DB] Error creating saved_teams table:', err.message);
             else console.log('[DB] Saved teams table ready.');
         });
+        // Migration: add last_connected_at to existing saved_teams rows
+        db.run("ALTER TABLE saved_teams ADD COLUMN last_connected_at DATETIME DEFAULT NULL", () => {});
 
         // Past Analyses Table
         db.run(`CREATE TABLE IF NOT EXISTS analyses (

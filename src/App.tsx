@@ -84,13 +84,14 @@ function App() {
   }
 
   const nextGameweek = data.events.find(e => e.is_next);
-  const currentGameweek = nextGameweek || data.events.find(e => e.is_current);
+  const activeGameweek = data.events.find(e => e.is_current);
+  const currentGameweek = nextGameweek || activeGameweek;
 
   return (
     <AuthProvider>
       <BrowserRouter>
         <RouteTracker />
-        <Layout currentGameweek={currentGameweek}>
+        <Layout currentGameweek={currentGameweek} activeGameweek={activeGameweek}>
           <Routes>
             <Route path="/" element={<HomeView />} />
             <Route path="/players" element={<PlayersView data={data} />} />

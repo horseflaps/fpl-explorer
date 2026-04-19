@@ -10,6 +10,7 @@ interface SavedTeam {
     name: string;
     team_data: string;
     created_at: string;
+    last_connected_at: string | null;
 }
 
 interface SavedAnalysis {
@@ -225,20 +226,21 @@ const MyTeamsView: React.FC = () => {
                         const lastLoadedId = Number(localStorage.getItem('last_analysed_entry')) || null;
                         const connectedTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id === fplEntryId; } catch { return false; } });
                         const otherTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id !== fplEntryId; } catch { return true; } });
+                        const prevConnectedTeams = otherTeams.filter(t => !!t.last_connected_at);
+                        const neverConnectedTeams = otherTeams.filter(t => !t.last_connected_at);
                         const currentlyLoadedTeam = lastLoadedId && lastLoadedId !== fplEntryId
                             ? otherTeams.find(t => { try { return JSON.parse(t.team_data).entry_id === lastLoadedId; } catch { return false; } }) ?? null
                             : null;
-                        const remainingTeams = currentlyLoadedTeam
-                            ? otherTeams.filter(t => t.id !== currentlyLoadedTeam.id)
-                            : otherTeams;
+
+                        const formatDate = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
                         const renderTeamCard = (team: typeof teams[0]) => {
                             const data = JSON.parse(team.team_data);
                             const isConnected = fplConnected && fplEntryId !== null && data.entry_id === fplEntryId;
                             const isAutopilot = isConnected && user?.autopilot_enabled;
-                            const connectedAt = isConnected && user?.fpl_connected_at
-                                ? new Date(user.fpl_connected_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                                : null;
+                            const connectedAtStr = isConnected && user?.fpl_connected_at
+                                ? formatDate(user.fpl_connected_at)
+                                : team.last_connected_at ? formatDate(team.last_connected_at) : null;
                             return (
                                 <div
                                     key={team.id}
@@ -260,8 +262,8 @@ const MyTeamsView: React.FC = () => {
                                             )}
                                         </div>
                                         <div className="text-xs text-gray-400 mt-1">Manager: {data.manager || 'Unknown'}</div>
-                                        {connectedAt && (
-                                            <div className="text-xs text-gray-500 mt-0.5">Last connected: {connectedAt}</div>
+                                        {connectedAtStr && (
+                                            <div className="text-xs text-gray-500 mt-0.5">{isConnected ? 'Last connected:' : 'Previously connected:'} {connectedAtStr}</div>
                                         )}
                                     </div>
                                     <div className="flex items-center gap-3 ml-3">
@@ -288,10 +290,16 @@ const MyTeamsView: React.FC = () => {
                                         <div className="grid gap-4">{renderTeamCard(currentlyLoadedTeam)}</div>
                                     </div>
                                 )}
-                                {remainingTeams.length > 0 && (
+                                {prevConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).length > 0 && (
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Previously Connected</h3>
+                                        <div className="grid gap-4">{prevConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).map(renderTeamCard)}</div>
+                                    </div>
+                                )}
+                                {neverConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).length > 0 && (
                                     <div>
                                         <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Never Connected</h3>
-                                        <div className="grid gap-4">{remainingTeams.map(renderTeamCard)}</div>
+                                        <div className="grid gap-4">{neverConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).map(renderTeamCard)}</div>
                                     </div>
                                 )}
                             </div>

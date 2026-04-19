@@ -10,6 +10,8 @@ interface AutopilotStatus {
     credits: number;
     membership_tier: number;
     fpl_connected: boolean;
+    fpl_entry_id: number | null;
+    connected_team_name: string | null;
 }
 
 interface DeadlineEvent {
@@ -150,6 +152,17 @@ export default function AutopilotView() {
             {/* Main controls — tier 3 only */}
             {isEligible && status && (
                 <>
+                    {/* Connected team banner — only when a different team is currently loaded */}
+                    {status.fpl_connected && status.connected_team_name && status.fpl_entry_id &&
+                        Number(localStorage.getItem('last_analysed_entry')) !== status.fpl_entry_id && (
+                        <div className="flex items-center gap-3 bg-[#00ff87]/5 border border-[#00ff87]/20 rounded-xl px-4 py-3">
+                            <div className="w-2 h-2 rounded-full bg-[#00ff87] shrink-0" />
+                            <p className="text-sm text-gray-300">
+                                Auto-Pilot is configured for your connected team: <span className="font-bold text-white">{status.connected_team_name}</span>. Settings here apply to that team only.
+                            </p>
+                        </div>
+                    )}
+
                     {/* FPL connection warning */}
                     {!status.fpl_connected && (
                         <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">

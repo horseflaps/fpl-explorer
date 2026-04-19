@@ -681,6 +681,7 @@ app.post('/api/fpl/connect', (req, res) => {
 
     db.run('UPDATE users SET fpl_entry_id = ? WHERE id = ?', [numericEntryId, decoded.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
+        stampTeamConnectedAt(decoded.id, numericEntryId);
 
         // Award 1 free credit if this FPL manager ID has never been used before
         db.get('SELECT fpl_entry_id FROM fpl_free_credits WHERE fpl_entry_id = ?', [numericEntryId], (err2, row) => {
@@ -906,6 +907,14 @@ app.get('/api/fpl/my-picks', async (req, res) => {
 });
 
 // Auto-save a connected team to saved_teams if not already saved
+function stampTeamConnectedAt(userId, entryId) {
+    db.run(
+        "UPDATE saved_teams SET last_connected_at = ? WHERE user_id = ? AND json_extract(team_data, '$.entry_id') = ?",
+        [new Date().toISOString(), userId, entryId],
+        (err) => { if (err) console.error('[DB] stampTeamConnectedAt error:', err.message); }
+    );
+}
+
 async function autoSaveConnectedTeam(userId, entryId) {
     if (!entryId) return;
     const existing = await new Promise((resolve, reject) =>
@@ -969,7 +978,10 @@ app.post('/api/fpl/token', async (req, res) => {
     db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params, (err) => {
         if (err) return res.status(500).json({ error: err.message });
         delete fplValidationCache[decoded.id];
-        if (resolvedEntryId) autoSaveConnectedTeam(decoded.id, resolvedEntryId).catch(() => {});
+        if (resolvedEntryId) {
+            autoSaveConnectedTeam(decoded.id, resolvedEntryId).catch(() => {});
+            stampTeamConnectedAt(decoded.id, resolvedEntryId);
+        }
         res.json({ ok: true, entry_id: resolvedEntryId });
     });
 });
@@ -2190,13 +2202,22 @@ app.get('/api/user/autopilot', (req, res) => {
     if (!decoded) return;
     db.get('SELECT membership_tier, credits, autopilot_enabled, autopilot_last_gw, fpl_entry_id, fpl_session FROM users WHERE id = ?', [decoded.id], (err, row) => {
         if (err || !row) return res.status(500).json({ error: 'Failed to get autopilot status' });
-        res.json({
+        const base = {
             autopilot_enabled: !!row.autopilot_enabled,
             autopilot_last_gw: row.autopilot_last_gw ?? 0,
             credits: row.credits ?? 0,
             membership_tier: row.membership_tier ?? 1,
             fpl_connected: !!(row.fpl_session && row.fpl_entry_id),
-        });
+            fpl_entry_id: row.fpl_entry_id ?? null,
+            connected_team_name: null,
+        };
+        if (!row.fpl_entry_id) return res.json(base);
+        db.get("SELECT name FROM saved_teams WHERE user_id = ? AND json_extract(team_data, '$.entry_id') = ? LIMIT 1",
+            [decoded.id, row.fpl_entry_id], (err2, teamRow) => {
+                base.connected_team_name = teamRow?.name?.replace(/\s*\(GW\d+\)$/, '') ?? null;
+                res.json(base);
+            }
+        );
     });
 });
 
