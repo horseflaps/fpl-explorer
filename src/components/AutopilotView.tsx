@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bot, Lock, Power, AlertTriangle, CheckCircle, Clock, Zap, Mail, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { track } from '../utils/analytics';
 
 interface AutopilotStatus {
     autopilot_enabled: boolean;
@@ -70,6 +71,7 @@ export default function AutopilotView() {
             const data = await res.json();
             if (!res.ok) { setError(data.error || 'Failed to update'); return; }
             setStatus(prev => prev ? { ...prev, autopilot_enabled: data.autopilot_enabled } : null);
+            track(enable ? 'Auto-Pilot Enabled' : 'Auto-Pilot Disabled');
             refreshUser();
         } catch {
             setError('Network error');

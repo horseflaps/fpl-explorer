@@ -20,6 +20,7 @@ async function getRandomQuote() {
     return _quotesCache[Math.floor(Math.random() * _quotesCache.length)];
 }
 import { LoginModal } from './LoginModal';
+import { track } from '../utils/analytics';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -166,6 +167,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 const json = await res.json();
                 if (!res.ok) throw new Error(json.error || 'Failed');
                 setFplEntryId(json.entry_id);
+                track('FPL Account Linked', { entry_id: json.entry_id, free_credit_awarded: !!json.free_credit_awarded });
                 if (json.free_credit_awarded) {
                     setFplFreeCreditToast(true);
                     setTimeout(() => setFplFreeCreditToast(false), 5000);
@@ -1092,6 +1094,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
         if ((user?.credits ?? 0) < 1) return;
 
+        track('Analysis Started', { entry_id: entryId, gw: picksToUse.entry_history?.event, is_own_team: isOwnTeam });
         setIsAiLoading(true);
         setAiAnalysisText(null);
         setWolfPlan(null);
@@ -1208,6 +1211,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             }
 
             setAiAnalysisText(displayText);
+            track('Analysis Completed', { entry_id: entryId, gw: picksToUse.entry_history?.event, has_plan: !!parsed, provider: resultProvider });
 
             // Credit already deducted server-side (atomically, before Gemini was called)
             // Just refresh the user so the UI shows the updated credit count
@@ -1228,6 +1232,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             }
         } catch (error: any) {
             console.error('Gemini Error:', error);
+            track('Analysis Failed', { entry_id: entryId, error: error.message });
             setAiAnalysisText(`Error: ${error.message || 'Unknown error occurred'}`);
         } finally {
             setIsAiLoading(false);
@@ -1242,6 +1247,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             return;
         }
 
+        track('Plan Execution Started', { entry_id: entryId, transfers: wolfPlan.transfers.length, chip: wolfPlan.chip ?? null });
         setIsExecuting(true);
         setExecuteResult(null);
 
@@ -1519,6 +1525,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
             }
 
             setExecuteResult({ success: true });
+            track('Plan Executed Successfully', { entry_id: entryId, transfers: wolfPlan.transfers.length, chip: wolfPlan.chip ?? null });
             setLastExecutedPlan({ transfers: wolfPlan.transfers, chip: wolfPlan.chip ?? null });
             // Clear the "last recommended" plan now that it's been executed — next analysis starts fresh
             setLastRecommendedPlan(null);
@@ -1537,6 +1544,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     setExecuteResult({ success: false, error: err.message });
                 }
             } else {
+                track('Plan Execution Failed', { entry_id: entryId, error: err.message });
                 setExecuteResult({ success: false, error: err.message });
             }
         } finally {
@@ -2735,12 +2743,26 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                         {isReconstructed ? '-' : (data.events.find(e => e.id === selectedGw)?.highest_score || '-')}
                     </div>
                 </div>
-                <div className="flex flex-col items-center justify-center p-6 bg-[#00ff87] rounded-xl border-4 border-[#00ff87] shadow-[0_0_30px_rgba(0,255,135,0.2)] transform hover:scale-105 transition-all cursor-default">
-                    <div className="text-[#37003c] font-black text-5xl md:text-6xl tracking-tighter leading-none mb-1">
-                        {isReconstructed ? 0 : (picksData?.entry_history?.points ?? 0)}
-                    </div>
-                    <div className="text-[#37003c]/60 text-[10px] uppercase font-black tracking-widest">Total Points</div>
-                </div>
+                {(() => {
+                    const officialPoints = picksData?.entry_history?.points ?? 0;
+                    // During a live GW the official tally is 0 until FPL finalises it.
+                    // Calculate live total from liveStats so the number updates in real time.
+                    const liveTotal = Object.keys(liveStats).length > 0 && picksData?.picks
+                        ? picksData.picks
+                            .filter(p => p.position <= 11)
+                            .reduce((sum, p) => sum + (liveStats[p.element]?.total_points ?? 0) * p.multiplier, 0)
+                        : null;
+                    const displayPoints = isReconstructed ? 0 : (liveTotal !== null && liveTotal >= officialPoints ? liveTotal : officialPoints);
+                    const isLive = liveTotal !== null && liveTotal > officialPoints;
+                    return (
+                        <div className="flex flex-col items-center justify-center p-6 bg-[#00ff87] rounded-xl border-4 border-[#00ff87] shadow-[0_0_30px_rgba(0,255,135,0.2)] transform hover:scale-105 transition-all cursor-default">
+                            <div className="text-[#37003c] font-black text-5xl md:text-6xl tracking-tighter leading-none mb-1">
+                                {displayPoints}
+                            </div>
+                            <div className="text-[#37003c]/60 text-[10px] uppercase font-black tracking-widest">{isLive ? 'Live Points' : 'Total Points'}</div>
+                        </div>
+                    );
+                })()}
                 <div className="flex flex-col items-center justify-center p-4 bg-white/5 rounded-xl border border-white/10 group hover:border-[#02efff]/30 transition-all hover:bg-[#02efff]/5">
                     <div className="text-white font-black text-2xl italic tracking-tighter group-hover:scale-110 transition-transform">
                         {isReconstructed ? '-' : (picksData?.entry_history?.rank?.toLocaleString() || '-')}

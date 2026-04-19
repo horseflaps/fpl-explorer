@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { track } from '../utils/analytics';
 import { X, LogIn, UserPlus, ChevronRight, ChevronLeft, Mail, CheckCircle } from 'lucide-react';
 
 interface LoginModalProps {
@@ -65,6 +66,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Authentication failed');
                 login(data.token, data.user);
+                track('User Logged In', { method: 'email' });
                 setLoginSuccess(true);
                 setTimeout(onClose, 1800);
             } catch (err: any) {
@@ -86,6 +88,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.error || 'Signup failed');
                     login(data.token, data.user);
+                    track('User Signed Up', { method: 'email' });
                     setAwaitingVerification(true);
                 } catch (err: any) {
                     setError(err.message);

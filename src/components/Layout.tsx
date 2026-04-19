@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Users, Shield, Calendar, Activity, Trophy, Shirt, LogIn, User as UserIcon, LineChart, Tag, Workflow, BookOpen, HelpCircle, CircleUserRound, Mail, Leaf, FlaskConical, Bot, Lock } from 'lucide-react';
 import type { Event } from '../types/fpl';
 import { LoginModal } from './LoginModal';
@@ -13,7 +13,14 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast, isLoginOpen, setIsLoginOpen, isVerified } = useAuth();
+
+    // Suppress autopilot dot when viewing a different team in the Analyse tab
+    const analyseEntryId = location.pathname === '/analyse'
+        ? Number(new URLSearchParams(location.search).get('entry')) || null
+        : null;
+    const showAutopilotDot = !!(user?.autopilot_enabled && fplConnected && (analyseEntryId === null || analyseEntryId === fplEntryId));
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => {
@@ -170,11 +177,11 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek }) => {
                                                 {isAutopilotLocked && (
                                                     <Lock size={13} className={`shrink-0 ${isActive ? 'text-slate-900/60' : 'text-gray-600'}`} />
                                                 )}
-                                                {item.label === 'Auto-Pilot' && user?.autopilot_enabled && (
+                                                {item.label === 'Auto-Pilot' && showAutopilotDot && (
                                                     <span className="relative flex h-3 w-3 shrink-0">
-                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00ff87] opacity-90" />
-                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00ff87] opacity-60 animation-delay-150" />
-                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#00ff87]" />
+                                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-90 ${isActive ? 'bg-slate-900' : 'bg-[#00ff87]'}`} />
+                                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${isActive ? 'bg-slate-900' : 'bg-[#00ff87]'}`} />
+                                                        <span className={`relative inline-flex rounded-full h-3 w-3 ${isActive ? 'bg-slate-900' : 'bg-[#00ff87]'}`} />
                                                     </span>
                                                 )}
                                             </>

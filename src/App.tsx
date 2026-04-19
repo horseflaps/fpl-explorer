@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { track } from './utils/analytics';
 import { fetchFPLData } from './services/api';
 import type { FPLResponse } from './types/fpl';
 import HomeView from './components/HomeView';
@@ -23,6 +24,14 @@ import MyAccountView from './components/MyAccountView';
 import Layout from './components/Layout';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
+
+function RouteTracker() {
+    const location = useLocation();
+    useEffect(() => {
+        track('page_view', { page_path: location.pathname + location.search });
+    }, [location]);
+    return null;
+}
 
 function App() {
   const [data, setData] = useState<FPLResponse | null>(null);
@@ -80,6 +89,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <RouteTracker />
         <Layout currentGameweek={currentGameweek}>
           <Routes>
             <Route path="/" element={<HomeView />} />

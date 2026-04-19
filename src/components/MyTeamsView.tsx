@@ -222,8 +222,15 @@ const MyTeamsView: React.FC = () => {
                             <p>Go to the Analyse page and click "Save Team" to add one here.</p>
                         </div>
                     ) : (() => {
+                        const lastLoadedId = Number(localStorage.getItem('last_analysed_entry')) || null;
                         const connectedTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id === fplEntryId; } catch { return false; } });
                         const otherTeams = teams.filter(t => { try { return JSON.parse(t.team_data).entry_id !== fplEntryId; } catch { return true; } });
+                        const currentlyLoadedTeam = lastLoadedId && lastLoadedId !== fplEntryId
+                            ? otherTeams.find(t => { try { return JSON.parse(t.team_data).entry_id === lastLoadedId; } catch { return false; } }) ?? null
+                            : null;
+                        const remainingTeams = currentlyLoadedTeam
+                            ? otherTeams.filter(t => t.id !== currentlyLoadedTeam.id)
+                            : otherTeams;
 
                         const renderTeamCard = (team: typeof teams[0]) => {
                             const data = JSON.parse(team.team_data);
@@ -271,14 +278,20 @@ const MyTeamsView: React.FC = () => {
                             <div className="space-y-8">
                                 {connectedTeams.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Connected Teams</h3>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Current Connected Team</h3>
                                         <div className="grid gap-4">{connectedTeams.map(renderTeamCard)}</div>
                                     </div>
                                 )}
-                                {otherTeams.length > 0 && (
+                                {currentlyLoadedTeam && (
+                                    <div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Currently Loaded</h3>
+                                        <div className="grid gap-4">{renderTeamCard(currentlyLoadedTeam)}</div>
+                                    </div>
+                                )}
+                                {remainingTeams.length > 0 && (
                                     <div>
                                         <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Never Connected</h3>
-                                        <div className="grid gap-4">{otherTeams.map(renderTeamCard)}</div>
+                                        <div className="grid gap-4">{remainingTeams.map(renderTeamCard)}</div>
                                     </div>
                                 )}
                             </div>

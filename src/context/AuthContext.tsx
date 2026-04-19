@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { identifyUser, clearUser as clearAnalyticsUser } from '../utils/analytics';
 
 interface User {
     id: number;
@@ -86,6 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 })
                 .then(data => {
                     setUser(data.user);
+                    identifyUser(data.user.id, { tier: data.user.membership_tier, email: data.user.email });
                 })
                 .catch(() => {
                     logout();
@@ -163,6 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.dispatchEvent(new CustomEvent('fpw-login', { detail: { token: newToken } }));
         setToken(newToken);
         setUser(newUser);
+        identifyUser(newUser.id, { tier: newUser.membership_tier, email: newUser.email });
         setLoginGlow(true);
         setTimeout(() => setLoginGlow(false), 2500);
     };
@@ -177,6 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         localStorage.removeItem('token');
         sessionStorage.removeItem('fpl_modal_shown');
+        clearAnalyticsUser();
         setToken(null);
         setUser(null);
         setFplEntryId(null);

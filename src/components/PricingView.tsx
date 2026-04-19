@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Zap, Bot, Brain, Check, Loader2, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSearchParams } from 'react-router-dom';
+import { track } from '../utils/analytics';
 
 const analysisTiers = [
     { qty: 1,  total: '£2.00',  perUnit: '£2.00',  saving: null },
@@ -144,6 +145,7 @@ const PricingView: React.FC = () => {
             return;
         }
         const key = type === 'credits' ? `credits-${payload.qty}` : `sub-${payload.plan}`;
+        track('Checkout Started', { type, plan: payload.plan ?? null, qty: payload.qty ?? null });
         setLoadingItem(key);
         try {
             const res = await fetch('/api/stripe/create-checkout', {
