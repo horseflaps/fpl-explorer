@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { FPLResponse, Fixture, Player } from '../types/fpl';
-import { Shield, Calendar, Users, Activity, Loader2, ChevronDown, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Shield, Calendar, Users, Activity, Loader2, ChevronDown, TrendingUp } from 'lucide-react';
 import { fetchFixtures } from '../services/api';
 
 interface TeamsViewProps {
@@ -46,15 +46,6 @@ const StrengthBar: React.FC<{ label: string; home: number; away: number }> = ({ 
     );
 };
 
-const FormPip: React.FC<{ result: string }> = ({ result }) => {
-    const map: Record<string, { color: string; label: string }> = {
-        W: { color: 'bg-green-500 text-white', label: 'W' },
-        D: { color: 'bg-gray-500 text-white', label: 'D' },
-        L: { color: 'bg-red-500 text-white', label: 'L' },
-    };
-    const s = map[result] ?? { color: 'bg-slate-700 text-gray-500', label: '?' };
-    return <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${s.color}`}>{s.label}</span>;
-};
 
 const TeamsView: React.FC<TeamsViewProps> = ({ data }) => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -106,8 +97,6 @@ const TeamsView: React.FC<TeamsViewProps> = ({ data }) => {
         return data.teams.find(t => t.id === oppId);
     };
 
-    const formString = activeTeam?.form ?? '';
-    const formResults = formString ? formString.split(',').filter(Boolean) : [];
 
     const sortedLeague = useMemo(() =>
         [...data.teams].sort((a, b) => a.position - b.position),
@@ -420,7 +409,7 @@ const TeamsView: React.FC<TeamsViewProps> = ({ data }) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {sortedLeague.map((team, i) => (
+                                    {sortedLeague.map((team) => (
                                         <tr
                                             key={team.id}
                                             className="border-b border-slate-800/50 hover:bg-slate-800/40 cursor-pointer transition-colors"

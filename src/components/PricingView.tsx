@@ -96,6 +96,7 @@ const PricingView: React.FC = () => {
     const membershipTiers = membershipTiersMeta.map(t => ({
         ...t,
         price: t.id === 1 ? 'Free' : tierPrices[t.id] != null ? `£${tierPrices[t.id].toFixed(2)}` : '...',
+        alt: undefined as string | undefined,
     }));
 
     const [loadingItem, setLoadingItem] = useState<string | null>(null);
