@@ -2,19 +2,20 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Loader2, AlertTriangle, X, Activity, Sparkles, HelpCircle, Info, ChevronLeft, ChevronRight, Search, ArrowLeftRight, Save, Users, AlertCircle, RefreshCw, LogIn, Unlink, Tv } from 'lucide-react';
-import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse, NewsArticle } from '../types/fpl';
+import type { FPLResponse, EntryPicksResponse, Pick, LiveStats, Entry, LeagueStandingsResponse } from '../types/fpl';
 import { fetchEntryPicks, fetchLiveEvent, fetchEntry, fetchEntryHistory, fetchEntryTransfers, fetchTransferStatus, fetchLeagueStandings, searchTeamsByName, fetchFixtures } from '../services/api';
 
 
-import { fetchGeminiAnalysis, generateGeminiPrompt } from '../services/gemini';
+import { fetchGeminiAnalysis } from '../services/gemini';
 
 let _quotesCache: { quote: string; author: string }[] | null = null;
 async function getRandomQuote() {
     if (!_quotesCache) {
         try {
-            const res = await fetch('/quotes.xml');
+            const res = await fetch('/api/quotes');
+            if (!res.ok) throw new Error(`${res.status}`);
             _quotesCache = await res.json();
-        } catch { _quotesCache = []; }
+        } catch { /* leave _quotesCache null so next call retries */ }
     }
     if (!_quotesCache?.length) return null;
     return _quotesCache[Math.floor(Math.random() * _quotesCache.length)];
@@ -31,6 +32,7 @@ interface WolfPlan {
     vice_captain: string;
     hits_taken: number;
     bank_after: number;
+    starting_xi?: string[] | null;
     bench_order: string[] | null; // web_names for bench positions 12, 13, 14 (outfield only, GK excluded)
 }
 
@@ -236,24 +238,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [lastRecommendedPlan, setLastRecommendedPlan] = useState<{ transfers: { out_name: string; in_name: string }[]; chip: string | null; captain?: string } | null>(null);
     const [showFplLoginModal, setShowFplLoginModal] = useState(false);
     const [showNotConnectedWarning, setShowNotConnectedWarning] = useState(false);
-    const [news, setNews] = useState<NewsArticle[]>([]);
 
-    // Fetch News on Mount
-    useEffect(() => {
-        const loadNews = async () => {
-            try {
-                const res = await fetch('/api/news');
-                if (res.ok) {
-                    const data = await res.json();
-                    setNews(data);
-                }
-            } catch (e) {
-                console.error("News fetch error:", e);
-            }
-        };
-        loadNews();
-    }, []);
-
+    // Preload quotes on mount so they're ready instantly when analysis starts
+    useEffect(() => { getRandomQuote(); }, []);
 
     const [picksData, setPicksData] = useState<EntryPicksResponse | null>(null);
     const [entryData, setEntryData] = useState<Entry | null>(null);
@@ -1135,10 +1122,20 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
             // If a plan was just executed, that takes priority over the previous recommendation
             const prevPlan = lastExecutedPlan ? null : lastRecommendedPlan;
-            const activeChipNow = picksToUse.active_chip ?? null;
-            const prompt = generateGeminiPrompt(data, picksToUse, entryData, entryHistory, transfersLeft, news, fixtures, availableChips, user?.manager_dna ?? null, lastExecutedPlan, transfers, prevPlan, activeChipNow);
             setLastExecutedPlan(null); // consume — only warn once per execute
-            const { text: result, provider: resultProvider } = await fetchGeminiAnalysis(prompt, token ?? '');
+            const { text: result, provider: resultProvider } = await fetchGeminiAnalysis({
+                bootstrapData: data,
+                picksData: picksToUse,
+                entryData,
+                historyData: entryHistory,
+                transfersAvailable: transfersLeft,
+                fixtures,
+                availableChips,
+                managerDna: user?.manager_dna ?? null,
+                recentlyExecuted: lastExecutedPlan,
+                transferHistory: transfers,
+                lastRecommendedPlan: prevPlan,
+            }, token ?? '');
             setAiProvider(resultProvider);
 
             // Parse structured plan from response — try multiple strategies
@@ -2310,18 +2307,11 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <div className="p-5 space-y-4">
                                     {/* Transfers */}
                                     {wolfPlan.transfers.length === 0 ? (
-                                        wolfPlan.chip === 'wildcard' || wolfPlan.chip === 'freehit' ? (
-                                            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 space-y-1">
-                                                <p className="text-yellow-300 text-sm font-bold">🃏 {wolfPlan.chip === 'wildcard' ? 'Wildcard' : 'Free Hit'} — rebuild your squad manually</p>
-                                                <p className="text-white/60 text-xs leading-relaxed">The Wolf wants you to use your {wolfPlan.chip === 'wildcard' ? 'Wildcard' : 'Free Hit'} to overhaul the squad, but couldn't specify every replacement in one plan. Head to fantasy.premierleague.com to rebuild your full squad, then use the chip there.</p>
-                                            </div>
-                                        ) : (
-                                            <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
-                                        )
+                                        <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
                                     ) : (
                                         <div className="space-y-2">
                                             <div className="text-white/40 text-xs uppercase font-bold tracking-widest mb-2">Transfers</div>
-                                            {wolfPlan.transfers.map((t, i) => (
+                                            {wolfPlan.transfers.filter(t => t.out_name && t.in_name).map((t, i) => (
                                                 <div key={i} className="flex items-center gap-3 bg-white/5 rounded-lg px-4 py-3">
                                                     <span className="text-red-400 font-bold text-sm flex-1">↑ {t.out_name} <span className="text-white/40 font-normal">£{t.sell_price}m</span></span>
                                                     <span className="text-white/30 text-lg">→</span>
@@ -2352,7 +2342,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         </div>
                                         <div className="bg-white/5 rounded-lg px-3 py-2 text-center">
                                             <div className="text-white/40 text-[10px] uppercase font-bold tracking-wider">Bank After</div>
-                                            <div className="text-white font-black text-sm">£{wolfPlan.bank_after?.toFixed(1)}m</div>
+                                            <div className="text-white font-black text-sm">{wolfPlan.bank_after != null && wolfPlan.bank_after <= 30 ? `£${wolfPlan.bank_after.toFixed(1)}m` : '—'}</div>
                                         </div>
                                     </div>
 
@@ -2366,16 +2356,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         </div>
                                     ) : isOwnTeam ? (
                                         /* Connected + matching team — full execute path */
-                                        wolfPlan.chip && ['wildcard', 'freehit'].includes(wolfPlan.chip) && wolfPlan.transfers.length === 0 ? (
-                                            <a
-                                                href="https://fantasy.premierleague.com/"
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="w-full py-3 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-black text-sm rounded-xl uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-yellow-500/20"
-                                            >
-                                                🌐 Rebuild Squad on FPL Website
-                                            </a>
-                                        ) : executeResult?.success ? (
+                                        executeResult?.success ? (
                                             <div className="space-y-2">
                                                 <div className="w-full py-3 bg-[#00ff87]/10 border border-[#00ff87]/40 text-[#00ff87] font-black text-sm rounded-xl uppercase tracking-widest flex items-center justify-center gap-2">
                                                     ✓ Execution Successful!

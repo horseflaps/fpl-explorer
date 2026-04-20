@@ -1,0 +1,37 @@
+This is an incredibly strong prompt. You have already built in excellent guardrails: a clear persona, strict formatting, position/club rules, and an ingenious "Auto-Pilot" safety mode to prevent the AI from making wild, unreviewed hits.
+
+However, when dealing with LLMs acting as game-theory strategists, there are a few edge cases and mathematical blindspots you can tighten up to make this bulletproof.
+
+Here is how you can make it even better:
+
+1. Clarify FPL Financial Mechanics
+LLMs do not inherently know the FPL 50% profit sell-on rule. If your [JSON array of 15 players] only includes a generic cost, the AI might miscalculate the budget.
+
+The Fix: Ensure your input data specifically provides selling_price (what the manager gets for selling) and purchase_price (what it costs to buy). Update Mandatory Rule 1 to read: Budget: Incoming player purchase_price ≤ outgoing player selling_price + current bank.
+
+2. Define "EV Gain" for the Hit Rule
+You have a great rule: "EV gain ≥ +8pts". However, LLMs are bad at abstract math. If you are feeding it ep_next (which is usually just for the next single Gameweek), achieving a +8 EV in one week is almost mathematically impossible unless replacing a blanking player with Erling Haaland playing a double gameweek.
+
+The Fix: Tell the AI exactly how to calculate EV over a horizon. Change Rule 5 to: AUTO-PILOT HIT RULE: Do NOT recommend a hit unless the incoming player's projected points over the next 4 GWs is ≥ 8 points higher than the outgoing player's projected points over the same period.
+
+3. Prioritize "Fires" (Injuries/Suspensions)
+The prompt tells the AI to look at form and fixtures, but it doesn't explicitly tell it how to handle red flags (injuries/suspensions). An AI might leave a 75% flagged player in the squad because their ep_next still looks okay.
+
+The Fix: Add a Mandatory Rule: Fires First: Always prioritize using free transfers to remove players with a "Suspended" or "0% chance of playing" status before making luxury/tactical transfers.
+
+4. Vice-Captain Safety Net
+In Auto-Pilot mode, the Vice-Captain is your only insurance policy against sudden postponements or unexpected benchings.
+
+The Fix: Add a specific directive for the VC. Vice-Captain: Must play for a different team and ideally in a different fixture than the Captain to mitigate postponement risks.
+
+5. Define the Starting XI Output
+Your JSON block asks for bench_order, which is great, but it assumes the AI inherently knows who is in the starting XI versus who is dropping to the bench based on the transfers. Sometimes LLMs will transfer a player in, but forget to "start" them.
+
+The Fix: Add a "starting_xi": ["...", "..."] array to the ---WOLF_PLAN_JSON--- block so the AI is forced to explicitly declare who is on the pitch in a valid formation (e.g., 3-4-3, 4-4-2).
+
+6. JSON Hardening
+Because this is going to an automated pipeline, any text leaking into the JSON block will break your script.
+
+The Fix: Add a strict instruction right above the JSON output: Ensure the JSON block is perfectly formatted, strictly escapes quotes, and uses the exact player names as provided in the input arrays. Do not add any conversational text inside the WOLF_PLAN_JSON block.
+
+To help fine-tune the financial and mathematical constraints, how are you currently generating the ep_next values—are you passing the raw FPL API data, or injecting your own custom projection model?

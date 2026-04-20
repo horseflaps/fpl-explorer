@@ -81,12 +81,14 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     res.json({ received: true });
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Serve static files from the React app build directory (only in production)
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
 }
+// Always serve public assets (quotes.xml, etc.) regardless of environment
+app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API Routes ---
 
@@ -279,6 +281,36 @@ app.post('/api/user/deduct-credit', (req, res) => {
 
 // Wolf Analysis — server-side Gemini proxy with atomic credit gate
 // 1. Authenticate  2. Check credits  3. Deduct  4. Call Gemini  5. Return result
+async function callAI(provider, geminiKey, anthropicKey, prompt) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 170_000);
+    try {
+        let res;
+        if (provider === 'gemini') {
+            res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+                  body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 16000 } }) }
+            );
+        } else {
+            res = await fetch('https://api.anthropic.com/v1/messages',
+                { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+                  signal: controller.signal,
+                  body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, temperature: 0.7, messages: [{ role: 'user', content: prompt }] }) }
+            );
+        }
+        clearTimeout(timeout);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return provider === 'gemini'
+            ? (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null)
+            : (data?.content?.[0]?.text ?? null);
+    } catch {
+        clearTimeout(timeout);
+        return null;
+    }
+}
+
 // The Gemini API key never leaves the server. Credits are deducted BEFORE the
 // Gemini call so there is no window where a client can receive the analysis
 // without paying for it.
@@ -286,8 +318,21 @@ app.post('/api/wolf-analysis', async (req, res) => {
     const decoded = requireAuth(req, res);
     if (!decoded) return;
 
-    const { prompt } = req.body;
-    if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
+    const { bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentlyExecuted, transferHistory, lastRecommendedPlan } = req.body;
+    if (!bootstrapData || !picksData || !entryData) return res.status(400).json({ error: 'analysis data required' });
+
+    const recentArticles = await new Promise((resolve) => {
+        db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
+            resolve(err ? [] : (rows || []));
+        });
+    });
+
+    const prompt = buildWolfPrompt(
+        bootstrapData, picksData, entryData, historyData ?? {},
+        transfersAvailable ?? 1, fixtures ?? [], availableChips ?? [],
+        managerDna ?? null, transferHistory ?? [], recentArticles,
+        false, recentlyExecuted ?? null, lastRecommendedPlan ?? null
+    );
 
     // AI_PROVIDER: "gemini" (default) or "claude" — change env var to switch providers
     const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
@@ -309,57 +354,145 @@ app.post('/api/wolf-analysis', async (req, res) => {
     if (!creditOk) return res.status(403).json({ error: 'No analysis credits remaining.' });
 
     try {
-        const aiController = new AbortController();
-        const aiTimeout = setTimeout(() => aiController.abort(), 170_000); // 170s — just under client's 180s
-
-        let aiRes;
-        if (AI_PROVIDER === 'gemini') {
-            aiRes = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: aiController.signal,
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
-                    }),
-                }
-            );
-        } else {
-            aiRes = await fetch(
-                'https://api.anthropic.com/v1/messages',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': ANTHROPIC_API_KEY,
-                        'anthropic-version': '2023-06-01',
-                    },
-                    signal: aiController.signal,
-                    body: JSON.stringify({
-                        model: 'claude-sonnet-4-6',
-                        max_tokens: 16000,
-                        temperature: 0.7,
-                        messages: [{ role: 'user', content: prompt }],
-                    }),
-                }
-            );
-        }
-
-        clearTimeout(aiTimeout);
-        if (!aiRes.ok) {
-            const errBody = await aiRes.json().catch(() => ({}));
-            console.error('[Wolf] AI error:', aiRes.status, errBody);
-            // Refund credit — AI service failed through no fault of the user
+        let text = await callAI(AI_PROVIDER, GEMINI_API_KEY, ANTHROPIC_API_KEY, prompt);
+        if (!text) {
             db.run('UPDATE users SET credits = credits + 1 WHERE id = ?', [decoded.id], () => {});
             return res.status(502).json({ error: 'AI service error — credit refunded.' });
         }
 
-        const aiData = await aiRes.json();
-        const text = AI_PROVIDER === 'gemini'
-            ? (aiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '')
-            : (aiData?.content?.[0]?.text ?? '');
+        // Normalize + strip malformed transfers (AI may use variant field names)
+        const parsedPlan = parseWolfPlan(text);
+        if (parsedPlan && Array.isArray(parsedPlan.transfers)) {
+            // Normalize common field-name variants before checking validity
+            parsedPlan.transfers = parsedPlan.transfers.map(t => ({
+                out_name: t.out_name || t.out || t.player_out || t.outgoing || t.sell || '',
+                in_name:  t.in_name  || t.in  || t.player_in  || t.incoming || t.buy  || '',
+                sell_price: t.sell_price ?? t.sell ?? t.out_price ?? 0,
+                buy_price:  t.buy_price  ?? t.buy  ?? t.in_price  ?? 0,
+            }));
+            const before = parsedPlan.transfers.length;
+            parsedPlan.transfers = parsedPlan.transfers.filter(t => t.out_name && t.in_name);
+            if (parsedPlan.transfers.length < before) {
+                console.warn(`[Wolf] Stripped ${before - parsedPlan.transfers.length} malformed transfer(s) with missing player names`);
+            }
+            // Always patch text so downstream code and the client see the normalised plan
+            const planStart = text.indexOf('---WOLF_PLAN_JSON---');
+            const planEnd = text.indexOf('---END_WOLF_PLAN---');
+            if (planStart !== -1 && planEnd !== -1) {
+                text = text.slice(0, planStart + '---WOLF_PLAN_JSON---'.length) + '\n' + JSON.stringify(parsedPlan) + '\n' + text.slice(planEnd);
+            }
+        }
+
+        // Validate: chip + empty transfers is invalid, OR transfers were entirely stripped — retry once
+        const chip = parsedPlan?.chip;
+        const originalHadTransfers = text.includes('"out_name"') || text.includes('"player_out"') || text.includes('"out"');
+        if (((chip === 'wildcard' || chip === 'freehit') || originalHadTransfers) && (!parsedPlan?.transfers || parsedPlan.transfers.length === 0)) {
+            console.warn('[Wolf] Chip with no transfers or all transfers stripped — retrying with correction');
+            const correctionPrompt = `You are the Fantasy Premier Wolf. You previously recommended chip="${chip}" but your transfers array was empty. That is invalid.
+
+Your task now is ONLY to output the corrected JSON block. Do not repeat the analysis. Just output:
+
+---WOLF_PLAN_JSON---
+{"transfers":[/* your transfers here */],"chip":"${chip}","captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"starting_xi":["NAME_1","NAME_2","NAME_3","NAME_4","NAME_5","NAME_6","NAME_7","NAME_8","NAME_9","NAME_10","NAME_11"],"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
+---END_WOLF_PLAN---
+
+Here is the squad and buy targets from the original analysis:
+${prompt.slice(prompt.indexOf('**CURRENT SQUAD'), prompt.indexOf('**MANDATORY RULES') > -1 ? prompt.indexOf('**MANDATORY RULES') : prompt.length)}
+
+Rules: position-for-position only. Use EXACT web_names. For ${chip}, you MUST include transfers — pick the worst players in the squad and replace with the best available targets within budget.`;
+            const retryRes = await callAI(AI_PROVIDER, GEMINI_API_KEY, ANTHROPIC_API_KEY, correctionPrompt);
+            if (retryRes) {
+                const retryPlan = parseWolfPlan(retryRes);
+                if (retryPlan && retryPlan.transfers && retryPlan.transfers.length > 0) {
+                    // Graft the corrected JSON into the original analysis text
+                    const origJsonStart = text.indexOf('---WOLF_PLAN_JSON---');
+                    const origJsonEnd = text.indexOf('---END_WOLF_PLAN---');
+                    const retryJsonStart = retryRes.indexOf('---WOLF_PLAN_JSON---');
+                    const retryJsonEnd = retryRes.indexOf('---END_WOLF_PLAN---');
+                    if (origJsonStart !== -1 && origJsonEnd !== -1 && retryJsonStart !== -1 && retryJsonEnd !== -1) {
+                        text = text.slice(0, origJsonStart) + retryRes.slice(retryJsonStart, retryJsonEnd + '---END_WOLF_PLAN---'.length);
+                    } else {
+                        text = retryRes;
+                    }
+                }
+            }
+        }
+
+        // Validate: under-review players cannot be dropped unless flagged injured/suspended
+        const planAfterChipCheck = parseWolfPlan(text);
+        if (planAfterChipCheck && Array.isArray(planAfterChipCheck.transfers) && planAfterChipCheck.transfers.length > 0) {
+            const currentEventV = picksData.entry_history?.event ?? 0;
+            const recentBuyIds = new Set();
+            for (const t of (transferHistory || [])) {
+                if (t.event >= currentEventV - 1 && t.event <= currentEventV) recentBuyIds.add(t.element_in);
+            }
+            for (const t of ((recentlyExecuted && recentlyExecuted.transfers) || [])) {
+                const inP = bootstrapData.elements.find(e => e.web_name === t.in_name);
+                if (inP) recentBuyIds.add(inP.id);
+            }
+            const droppableStatuses = new Set(['i', 's']); // injured, suspended
+            const violations = [];
+            for (const tr of planAfterChipCheck.transfers) {
+                const outP = bootstrapData.elements.find(e => e.web_name === tr.out_name);
+                if (!outP) continue;
+                if (!recentBuyIds.has(outP.id)) continue;
+                const chancePlaying = outP.chance_of_playing_next_round;
+                const isFlagged = droppableStatuses.has(outP.status) || (chancePlaying != null && chancePlaying <= 25);
+                if (!isFlagged) violations.push({ name: outP.web_name, status: outP.status, chance: chancePlaying });
+            }
+            if (violations.length > 0) {
+                console.warn('[Wolf] Under-review violation — retrying:', violations.map(v => v.name).join(', '));
+                const violationList = violations.map(v => `- ${v.name} (status: ${v.status}, chance_of_playing: ${v.chance ?? 'n/a'})`).join('\n');
+                const correctionPrompt = `You are the Fantasy Premier Wolf. Your previous plan violated Mandatory Rule 10 (Under-Review Grace Period).
+
+You recommended dropping the following under-review players, none of whom are Injured, Suspended, or at ≤25% chance of playing:
+${violationList}
+
+These players were deliberately transferred IN within the last 2 GWs. Volatile single-week metrics (ep_next, form, sentiment) are NOT grounds for dropping them. The only valid drop reasons are Injured, Suspended, or chance_of_playing ≤ 25%.
+
+Your task now is ONLY to output a corrected JSON block. Either:
+(a) Remove the violating transfer(s) from the transfers array entirely, OR
+(b) Replace the OUT player with a DIFFERENT squad member who is NOT under-review and IS a weaker link (poor fixture, genuine form issue, injury).
+
+Output ONLY the corrected JSON block between the markers. No prose.
+
+---WOLF_PLAN_JSON---
+{"transfers":[...],"chip":${JSON.stringify(planAfterChipCheck.chip)},"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"starting_xi":["NAME_1","NAME_2","NAME_3","NAME_4","NAME_5","NAME_6","NAME_7","NAME_8","NAME_9","NAME_10","NAME_11"],"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
+---END_WOLF_PLAN---
+
+Here is the squad and buy targets from the original analysis:
+${prompt.slice(prompt.indexOf('**CURRENT SQUAD'), prompt.indexOf('**MANDATORY RULES') > -1 ? prompt.indexOf('**MANDATORY RULES') : prompt.length)}`;
+                const retryRes = await callAI(AI_PROVIDER, GEMINI_API_KEY, ANTHROPIC_API_KEY, correctionPrompt);
+                if (retryRes) {
+                    const retryPlan = parseWolfPlan(retryRes);
+                    if (retryPlan && Array.isArray(retryPlan.transfers)) {
+                        // Verify retry didn't repeat the violation
+                        const stillViolating = retryPlan.transfers.some(tr => {
+                            const outP = bootstrapData.elements.find(e => e.web_name === tr.out_name);
+                            if (!outP || !recentBuyIds.has(outP.id)) return false;
+                            const chancePlaying = outP.chance_of_playing_next_round;
+                            return !(droppableStatuses.has(outP.status) || (chancePlaying != null && chancePlaying <= 25));
+                        });
+                        if (!stillViolating) {
+                            const origJsonStart = text.indexOf('---WOLF_PLAN_JSON---');
+                            const origJsonEnd = text.indexOf('---END_WOLF_PLAN---');
+                            const retryJsonStart = retryRes.indexOf('---WOLF_PLAN_JSON---');
+                            const retryJsonEnd = retryRes.indexOf('---END_WOLF_PLAN---');
+                            if (origJsonStart !== -1 && origJsonEnd !== -1 && retryJsonStart !== -1 && retryJsonEnd !== -1) {
+                                text = text.slice(0, origJsonStart) + retryRes.slice(retryJsonStart, retryJsonEnd + '---END_WOLF_PLAN---'.length);
+                            }
+                        } else {
+                            console.warn('[Wolf] Retry still violated under-review rule — keeping original but logging');
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clean up common AI sloppiness in the human-readable text
+        text = text.replace(/\*\*Transfers\*\*:\s*\[\]/gi, '**Transfers**: No transfers');
+        text = text.replace(/^-\s*\*\*Transfers\*\*:\s*\[\]/gim, '- **Transfers**: No transfers');
+
         res.json({ result: text, provider: AI_PROVIDER });
     } catch (error) {
         console.error('[Wolf] Fetch error:', error.message);
@@ -628,6 +761,10 @@ app.post('/api/contact', upload.single('attachment'), async (req, res) => {
 });
 
 // Get News Articles (for AI Context)
+app.get('/api/quotes', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'quotes.xml'));
+});
+
 app.get('/api/news', (req, res) => {
     // Return top 20 most recent articles
     db.all("SELECT source, title, summary FROM articles ORDER BY published_at DESC LIMIT 20", [], (err, rows) => {
@@ -1485,55 +1622,55 @@ app.post('/api/stripe/cancel-subscription', async (req, res) => {
 // AUTO-PILOT
 // ===========================
 
-const ARCHETYPE_DIRECTIVES_SERVER = {
+const ARCHETYPE_DIRECTIVES = {
     maverick: {
         strategy: 'High-Risk / High-Reward. Prioritise players with <10% ownership. Chase upside over safety.',
         logic: 'Ignore Effective Ownership (EO). Actively look for differential captains to swing mini-leagues. Embrace variance.',
-        tone: "The Hype-Man. Energetic, bold, and slightly rebellious. Use phrases like \"Fortune favors the bold.\"",
-        captain: 'Prefer a differential captain (ownership <15%) where credible. If a standout player dominates goals/assists, back them — frame it as "even a Maverick knows when to take the obvious pick."',
-        hitRule: 'This manager embraces hits. A -4 or even -8 is on the table if the EV case is strong. However in auto-pilot mode, be conservative — only recommend a hit if EV gain is very clear.',
+        tone: 'The Hype-Man. Energetic, bold, and slightly rebellious. Use phrases like "Fortune favors the bold." Celebrate the differential pick.',
+        captain: 'Prefer a differential captain (ownership <15%) where there is a credible case. However, if there is a standout player dominating in goals and assists, back them — just frame it as "even a Maverick knows when to take the obvious pick." Always explain the differential angle even if you go with the safe choice.',
+        hitRule: 'This manager embraces hits. A -4 or even -8 is on the table if the EV case is strong. Do not shy away from recommending one.',
     },
     spreadsheet: {
         strategy: 'Data-Driven / EV Focused. Prioritise xG, xA, and 5-week fixture difficulty (FDR).',
         logic: 'Ignore form if underlying stats are good. Use Expected Value (EV) to justify hits. Trust the model above all else.',
         tone: 'The Analyst. Cold, calculated, and precise. Use terminology like "statistically significant" and "regression to the mean."',
-        captain: 'Justify captain pick with xG, xA, and fixture data. Let the stats speak.',
-        hitRule: 'Only recommend a hit if EV clearly supports it. Show the maths. In auto-pilot, require minimum +8pt EV gain above free transfer alternative.',
+        captain: 'Justify the captain pick with xG, xA, and fixture difficulty data. If a player is the standout choice, back them — but always show the numbers behind the decision. Avoid narrative-driven picks; let the stats speak.',
+        hitRule: 'Recommend a hit only if the EV calculation clearly supports it. Show the maths: expected points gain minus 4. If EV is positive, recommend it. If not, hold.',
     },
     template: {
-        strategy: 'Low-Risk / Rank Protection. Prioritise players with >40% ownership.',
-        logic: 'Follow the pack. Avoid points hits unless 2+ players are red-flagged.',
-        tone: 'The Guardian. Protective, cautious, and steady.',
-        captain: 'Lean toward the high-ownership, in-form captain to protect rank.',
-        hitRule: 'Strongly avoid hits. Only recommend if 2+ players are injured/suspended with no bench cover.',
+        strategy: 'Low-Risk / Rank Protection. Prioritise players with >40% ownership. Never let a rank-killer hurt us.',
+        logic: 'Follow the pack. Avoid points hits unless 2+ players are red-flagged. Safety and consistency are the goals.',
+        tone: 'The Guardian. Protective, cautious, and steady. Use phrases like "Hold the line" and "Safety first."',
+        captain: 'Lean toward the high-ownership, in-form captain to protect rank. If a player is the clear standout week after week, that is the pick — frame it as "the pack is right for a reason." Only consider a differential if the form case for the obvious pick has genuinely collapsed.',
+        hitRule: 'Strongly avoid hits. Only recommend one if 2 or more players are injured/suspended with no bench cover. A hit is a last resort, not a strategy.',
     },
     kneejerk: {
-        strategy: 'Form-Chasing / Reactive. Prioritise top scorers from the last two weeks.',
-        logic: 'Focus on price rises and immediate momentum. Move fast.',
-        tone: "The Scout. Urgent, fast-paced, and opportunistic.",
-        captain: 'Back whoever is in the best form right now.',
-        hitRule: 'Hits acceptable to chase in-form players. In auto-pilot, only if strong EV case.',
+        strategy: 'Form-Chasing / Reactive. Prioritise top scorers from the last two weeks. Follow the momentum.',
+        logic: 'Focus on price rises and immediate momentum. If a player blanks twice they are dead weight. Move fast.',
+        tone: "The Scout. Urgent, fast-paced, and opportunistic. Use phrases like \"Strike while the iron is hot\" and \"Don't miss the train.\"",
+        captain: 'Back whoever is in the best form right now. If someone has been scoring week in week out, they are the captain — full stop. Momentum matters more than ownership or fixtures to this manager.',
+        hitRule: 'Hits are acceptable to chase in-form players. If a top scorer from last week is not in the squad and fixtures are good, a -4 to bring them in is justified. Act fast before the price rises.',
     },
     eyetest: {
-        strategy: 'Intuition / Tactical. Prioritise role on the pitch and visual form.',
-        logic: 'Focus on Out of Position (OOP) assets. Trust the vibe over the numbers.',
-        tone: 'The Tactician. Observant, insightful, and old-school.',
-        captain: 'Back whoever looked most dangerous on the pitch recently.',
-        hitRule: 'Consider hits only for players clearly out of favour visually. Must have tactical justification.',
+        strategy: 'Intuition / Tactical. Prioritise heatmaps and role on the pitch (e.g. is a defender playing as a winger?).',
+        logic: 'Ignore luck-based stats. Focus on Out of Position (OOP) assets. Trust the vibe of the game over the numbers.',
+        tone: 'The Tactician. Observant, insightful, and old-school. Use phrases like "He looked sharp" and "Passed the eye test."',
+        captain: 'Back whoever looked most dangerous on the pitch recently. If a player is clearly dominating games visually — movement, involvement, chances created — that is enough. Stats can support the case but should not override what the eye is telling you.',
+        hitRule: 'Consider hits only for players who have clearly fallen out of favour or look off the pace visually. Do not recommend a hit based on stats alone — there must be a tactical or visual justification.',
     },
 };
 
-function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentTransferHistory, nextGw) {
+function buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentTransferHistory, recentArticles, isAutoPilot = false, recentlyExecuted = null, lastRecommendedPlan = null) {
     const getPlayer = (id) => bootstrapData.elements.find(e => e.id === id);
     const getTeam = (id) => bootstrapData.teams.find(t => t.id === id);
 
     const teamName = entryData.name;
     const managerName = `${entryData.player_first_name} ${entryData.player_last_name}`;
-    const latestHistory = historyData?.current?.[historyData.current.length - 1];
-    const overallRank = latestHistory?.overall_rank ?? 0;
-    const totalPoints = latestHistory?.total_points ?? 0;
-    const gwPoints = latestHistory?.points ?? 0;
+    const overallRank = picksData.entry_history?.overall_rank ?? 0;
+    const totalPoints = picksData.entry_history?.total_points ?? 0;
+    const gwPoints = picksData.entry_history?.points ?? 0;
     const bank = (entryData.last_deadline_bank ?? 0) / 10;
+    const nextGw = (picksData.entry_history?.event ?? 0) + 1;
 
     // Multi-GW fixture lookup
     const gwRange = [nextGw, nextGw + 1, nextGw + 2, nextGw + 3].filter(gw => gw <= 38);
@@ -1563,7 +1700,27 @@ function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData,
         const bgwNote = bgwTeams.length > 0 ? ` 🔴 BGW: ${bgwTeams.join(', ')}` : '';
         scheduleLines.push(dgwNote || bgwNote ? `GW${gw}:${dgwNote}${bgwNote}` : `GW${gw}: All teams play`);
     }
-    const fixtureScheduleContext = `**FIXTURE SCHEDULE — NEXT 4 GWs:**\n${scheduleLines.join('\n')}\n\n⚠️ DGW: bringing in DGW players now is often worth a transfer. ⚠️ BGW: blanking players score 0 — flag if 5+ starters blank.`;
+    const fixtureScheduleContext = `**FIXTURE SCHEDULE — NEXT 4 GWs (DGW = Double Gameweek, BGW = Blank Gameweek):**
+${scheduleLines.join('\n')}
+
+⚠️ DGW planning: If a team has a Double Gameweek in GW${nextGw + 1} or beyond, it is often worth bringing in their players NOW (spending a transfer this GW) to own them for double the fixtures. Premium DGW assets with good form are especially valuable. Flag any upcoming DGWs in your recommendation.
+⚠️ BGW planning: Players from teams with a blank gameweek will score 0 — consider holding/benching them or using Free Hit chip if 5+ starters are blanking.`;
+
+    // Grace-period detection: players bought in the last 2 completed GWs are "under review"
+    const currentEventForReview = picksData.entry_history?.event ?? 0;
+    const recentBuyGw = {};
+    for (const t of (recentTransferHistory || [])) {
+        if (t.event >= currentEventForReview - 1 && t.event <= currentEventForReview) {
+            if (recentBuyGw[t.element_in] == null || t.event > recentBuyGw[t.element_in]) {
+                recentBuyGw[t.element_in] = t.event;
+            }
+        }
+    }
+    for (const t of ((recentlyExecuted && recentlyExecuted.transfers) || [])) {
+        // recentlyExecuted holds name-only; match by web_name against bootstrap
+        const inPlayer = bootstrapData.elements.find(e => e.web_name === t.in_name);
+        if (inPlayer) recentBuyGw[inPlayer.id] = currentEventForReview;
+    }
 
     // Squad
     const myPlayers = picksData.picks.map(p => {
@@ -1576,6 +1733,7 @@ function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData,
             if (gwFix.length >= 2) return `GW${gw}:DGW(${gwFix.join(' & ')})`;
             return `GW${gw}:${gwFix[0]}`;
         }).join(' | ');
+        const underReview = recentBuyGw[player.id] != null;
         return {
             name: player.web_name,
             team: team.short_name,
@@ -1590,6 +1748,7 @@ function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData,
             ownership: player.selected_by_percent,
             fixtures: multiFixture,
             status: player.status === 'a' ? 'Available' : player.status === 'd' ? 'Doubtful' : player.status === 'i' ? 'Injured' : player.status,
+            ...(underReview ? { note: `Brought in GW${recentBuyGw[player.id]} — stand by this call unless injured/suspended` } : {}),
         };
     }).filter(Boolean);
 
@@ -1607,12 +1766,14 @@ function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData,
         }).join(', ');
 
     const squadElementIds = new Set(picksData.picks.map(p => p.element));
+    const activeChip = picksData.active_chip ?? null;
 
-    // Top buy targets
+    // Top buy targets — expand to 40 for chip rebuilds so the AI has enough data
+    const targetCount = (activeChip === 'wildcard' || activeChip === 'freehit') ? 40 : 20;
     const topMarketTargets = bootstrapData.elements
         .filter(p => !squadElementIds.has(p.id) && p.status !== 'u' && p.status !== 'i')
         .sort((a, b) => parseFloat(b.ep_next) - parseFloat(a.ep_next))
-        .slice(0, 20)
+        .slice(0, targetCount)
         .map(p => {
             const ownedFromClub = squadClubCount[p.team] ?? 0;
             const clubBlocked = ownedFromClub >= 3 ? ' ⛔ BLOCKED' : ownedFromClub === 2 ? ' ⚠️ CAUTION (2/3)' : '';
@@ -1645,114 +1806,290 @@ function buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData,
     const totalHitsTaken = totalHitCost / 4;
     const hitFrequency = gwsPlayed > 0 ? (totalHitsTaken / gwsPlayed).toFixed(2) : '0.00';
     const historyContext = gwsPlayed > 0
-        ? `This manager has taken ${totalHitsTaken} hit(s) across ${gwsPlayed} GWs (${hitFrequency} hits/GW average).`
-        : 'No seasonal history yet.';
+        ? `This manager has taken ${totalHitsTaken} hit(s) across ${gwsPlayed} GWs this season (${hitFrequency} hits/GW on average).`
+        : 'No seasonal history available yet.';
 
     let toneInstruction = '';
-    if (overallRank === 0) toneInstruction = 'TONE: WELCOMING. Brand new team. Be encouraging.';
-    else if (overallRank < 10000) toneInstruction = 'TONE: ELITE RESPECT. Top 10k. Professional and concise.';
-    else if (overallRank < 100000) toneInstruction = 'TONE: ENCOURAGING BUT FIRM. Top 100k.';
-    else if (overallRank < 1000000) toneInstruction = 'TONE: STANDARD WOLF BANTER. Sarcastic but helpful.';
-    else toneInstruction = 'TONE: ROAST MODE. Rank >1M. Be ruthless but give useful tips.';
+    if (overallRank === 0) {
+        toneInstruction = 'TONE: WELCOMING. Brand new team with no rank yet. Be encouraging and focus on setting up a strong squad for the season ahead.';
+    } else if (overallRank < 10000) {
+        toneInstruction = 'TONE: ELITE RESPECT. Top 10k. Treat as a peer. Focus on marginal gains only. Professional and concise.';
+    } else if (overallRank < 100000) {
+        toneInstruction = 'TONE: ENCOURAGING BUT FIRM. Top 100k. Acknowledge the good season, push them further. Minimal banter.';
+    } else if (overallRank < 1000000) {
+        toneInstruction = 'TONE: STANDARD WOLF BANTER. Top 1M. Sarcastic and aggressive. Roast the mistakes but help them climb.';
+    } else {
+        toneInstruction = 'TONE: ROAST MODE. Rank >1M. Be ruthless. Mock bad picks. But still give 1-2 genuinely useful tips.';
+    }
 
-    let rankUrgency = '';
-    if (overallRank === 0) rankUrgency = 'RANK CONTEXT: New team. Play safe — no hits, no chips unless exceptional.';
-    else if (overallRank < 100000) rankUrgency = `RANK CONTEXT: Elite (${overallRank.toLocaleString()}). Protect position. Only Wildcard if 5+ XI players have FDR ≥ 4.`;
-    else if (overallRank < 1000000) rankUrgency = `RANK CONTEXT: Good rank (${overallRank.toLocaleString()}). Standard thresholds. Wildcard if 5+ XI have FDR ≥ 4 or 4+ injured.`;
-    else if (overallRank < 5000000) rankUrgency = `RANK CONTEXT: Poor rank (${overallRank.toLocaleString()}). Be more aggressive. Lower Wildcard threshold to 4+ weak players. Hits acceptable with clear EV.`;
-    else rankUrgency = `RANK CONTEXT: DISASTER ZONE (${overallRank.toLocaleString()}). Wildcard is the default if available. Maximum hits justified by EV.`;
+    const newsContext = recentArticles.length > 0
+        ? `**REAL-WORLD NEWS & GOSSIP:**\n${recentArticles.map(a => `- [${a.source}] ${a.title}: ${a.summary}`).join('\n')}`
+        : 'No specific news available.';
 
-    const recentTransferContext = recentTransferHistory.length > 0 ? `**RECENT TRANSFER HISTORY:**\n${recentTransferHistory.slice(0, 12).map(t => {
-        const pIn = getPlayer(t.element_in);
-        const pOut = getPlayer(t.element_out);
-        return `  GW${t.event}: ${pOut?.web_name ?? t.element_out} OUT → ${pIn?.web_name ?? t.element_in} IN`;
-    }).join('\n')}\n\n` : '';
+    // Recently rebuilt detection
+    const currentEvent = picksData.entry_history?.event ?? 0;
+    const lastGwTransferCount = (recentTransferHistory || []).filter(t => t.event === currentEvent).length;
+    const wildcardPlayedThisGw = historyData?.chips?.some(c => c.name === 'wildcard' && c.event === currentEvent);
+    const wildcardPlayedLastGw = historyData?.chips?.some(c => c.name === 'wildcard' && c.event === currentEvent - 1);
+    const wildcardChipRecords = (historyData?.chips || []).filter(c => c.name === 'wildcard');
+    const mostRecentWildcard = wildcardChipRecords.reduce((latest, c) => (!latest || c.event > latest.event) ? c : latest, null);
+    const wildcardGwAgo = mostRecentWildcard ? currentEvent - mostRecentWildcard.event : null;
+    const wildcardPlayedRecently = wildcardGwAgo !== null && wildcardGwAgo >= 0 && wildcardGwAgo <= 2;
+    const squadWasRecentlyRebuilt = wildcardPlayedThisGw || wildcardPlayedLastGw || lastGwTransferCount >= 4 || (recentlyExecuted && (recentlyExecuted.chip === 'wildcard' || (recentlyExecuted.transfers || []).length >= 4));
 
-    const activeChip = picksData.active_chip ?? null;
+    const chipCooldownContext = wildcardPlayedRecently
+        ? `**CHIP COOLDOWN — NO FLIP-FLOPPING:**
+A Wildcard was played ${wildcardGwAgo === 0 ? 'THIS gameweek' : `${wildcardGwAgo} gameweek(s) ago`}. That Wildcard recommendation was YOUR call as the Wolf — the manager executed it on your advice. You selected those players, you set that budget allocation, you built that squad. Own it. Therefore:
+- **Free Hit is effectively BANNED this week.** The only acceptable trigger is ≥5 starting XI players having a confirmed blank fixture in GW${nextGw}. Anything short of that, chip = null on Free Hit. A Free Hit squad reverts next week, so if you think the freshly-built squad is "crap", you are admitting the Wildcard was misjudged — and the Free Hit doesn't even fix it, the same "crap" squad comes back in GW${nextGw + 1}.
+- **If you do recommend Free Hit, you MUST name the specific new material change** that emerged AFTER the Wildcard was played (e.g. "Man City v Everton postponed, wasn't known at Wildcard time"). Vague reasoning like "fixtures look hard" or "form has dropped" is disqualifying — those were knowable when the Wildcard was played.
+- A Wildcard immediately followed by a Free Hit reads as panic, not strategy. It destroys trust in the analyst. Do not let that happen under your name.`
+        : '';
+
+    let rankUrgency;
+    if (squadWasRecentlyRebuilt) {
+        rankUrgency = `RANK CONTEXT: This squad was RECENTLY REBUILT (${wildcardPlayedThisGw || wildcardPlayedLastGw ? 'Wildcard played' : `${lastGwTransferCount} transfers made`} in the last 1-2 GWs). Do NOT judge this team by its old rank. Assess the CURRENT squad on its merits — the players in it now were chosen deliberately. The rank will recover as the new squad scores points. HOLD if the squad is strong. Only recommend changes if there is a clear immediate problem (injury, blank GW, glaring weak link). A "no changes needed" verdict is the correct call if the squad looks solid.
+
+**TONE GUARDRAIL (post-rebuild):** Your verdict MUST acknowledge the rebuild and assess performance from NOW forward, not from the pre-rebuild rank. You cannot describe a squad you just rebuilt as "crap", "a mess", "broken", "a shambles", or similar — you picked those players, so that framing is self-indicting. You MUST NOT blame the manager for the composition of a squad you recommended. If blanks or poor fixtures exist in a squad you built, take ownership: "I didn't account for this blank" — not "the Wildcard was badly managed". If the squad has weaknesses, name the SPECIFIC one or two players to fix rather than condemning the whole build.`;
+    } else if (overallRank === 0) {
+        rankUrgency = 'RANK CONTEXT: Brand new team (no rank yet). Play it safe — no hits, no chips unless exceptional circumstances.';
+    } else if (overallRank < 100000) {
+        rankUrgency = `RANK CONTEXT: Elite rank (${overallRank.toLocaleString()}). Protect position — only recommend a Wildcard if 5+ XI players have FDR ≥ 4. Hits require strong EV case.`;
+    } else if (overallRank < 1000000) {
+        rankUrgency = `RANK CONTEXT: Good rank (${overallRank.toLocaleString()}). Standard thresholds apply. Wildcard if 5+ XI players have FDR ≥ 4 OR 4+ players are injured/out-of-form. Hits if EV is clearly positive.`;
+    } else if (overallRank < 5000000) {
+        rankUrgency = `RANK CONTEXT: Poor rank (${overallRank.toLocaleString()}). This manager needs to climb — be more aggressive. LOWER THE WILDCARD THRESHOLD: recommend Wildcard if 4+ starting XI players are out-of-form (form < 3), injured/doubtful, or have FDR ≥ 4. Hits of -4 or even -8 are acceptable if multiple high-EV players are unavailable. Do not play it safe — playing safe at this rank is itself the bad decision.`;
+    } else {
+        rankUrgency = `RANK CONTEXT: DISASTER ZONE — rank ${overallRank.toLocaleString()}. This team needs emergency surgery, not band-aids. WILDCARD IS THE DEFAULT RECOMMENDATION unless it has already been used — the squad is structurally broken and 2 free transfers will not fix it. If Wildcard is unavailable, recommend the maximum hits (-4, -8, even -12) justified by EV, and consider Free Hit if blanks are an issue. Do NOT play conservatively — conservative play at rank ${overallRank.toLocaleString()} is how you finish the season in the gutter.`;
+    }
+
+    // Recent transfers context (last 3 GWs)
+    const recentTransfers = (recentTransferHistory || [])
+        .filter(t => t.event >= currentEvent - 2 && t.event <= currentEvent)
+        .sort((a, b) => b.event - a.event);
+    const recentTransfers3 = recentTransfers.slice(0, 12);
+    const recentlyBoughtIn = recentTransfers3.map(t => getPlayer(t.element_in)?.web_name ?? String(t.element_in));
+    const recentlySoldOut = recentTransfers3.map(t => getPlayer(t.element_out)?.web_name ?? String(t.element_out));
+    const recentTransferContext = recentTransfers3.length > 0
+        ? `**RECENT TRANSFER HISTORY (last 3 GWs — your own deliberate decisions):**
+${recentTransfers3.map(t => {
+    const pIn = getPlayer(t.element_in);
+    const pOut = getPlayer(t.element_out);
+    return `  GW${t.event}: ${pOut?.web_name ?? t.element_out} OUT → ${pIn?.web_name ?? t.element_in} IN`;
+}).join('\n')}
+
+Your consistency as an analyst depends on standing by these calls:
+- ${recentlyBoughtIn.join(', ')} were brought in as deliberate upgrades. Do NOT recommend dropping them unless they are injured, suspended, or their form/fixtures have materially deteriorated.
+- ${recentlySoldOut.join(', ')} were sold for a reason — poor form, bad fixtures, or poor value. Do NOT recommend buying them back unless something has concretely changed (new role, fixture swing, price drop that changes value). Simply forgetting why you sold them is not a reason.
+
+` : '';
+
+    // Recently executed plan context — manual analyse only
+    const recentlyExecutedContext = !isAutoPilot && recentlyExecuted && (recentlyExecuted.transfers || []).length > 0
+        ? `⚠️ **PLAN JUST EXECUTED MOMENTS AGO — YOUR OWN DECISIONS:**
+${recentlyExecuted.chip ? `Chip activated: ${recentlyExecuted.chip}` : ''}
+${recentlyExecuted.transfers.map(t => `  • ${t.out_name} OUT → ${t.in_name} IN`).join('\n')}
+
+You made these calls. Your reasoning for each:
+- Players you transferred OUT (${recentlyExecuted.transfers.map(t => t.out_name).join(', ')}): you assessed them as weak links — poor form, bad fixture, or poor value. That assessment does not expire in 5 minutes. Do NOT recommend bringing any of them back in.
+- Players you transferred IN (${recentlyExecuted.transfers.map(t => t.in_name).join(', ')}): you chose these as upgrades. Do NOT recommend dropping them already — they haven't even played yet.
+Build forward from this squad. Reversing your own decisions immediately is incoherent.
+
+` : '';
+
+    // Previous recommendation context — manual analyse only
+    const prevPlanContext = !isAutoPilot && lastRecommendedPlan && (lastRecommendedPlan.transfers || []).length > 0
+        ? `**YOUR PREVIOUS RECOMMENDATION (not yet executed — the manager is still deciding):**
+${lastRecommendedPlan.transfers.map(t => `  • ${t.out_name} OUT → ${t.in_name} IN`).join('\n')}
+${lastRecommendedPlan.chip ? `  Chip: ${lastRecommendedPlan.chip}` : ''}
+${lastRecommendedPlan.captain ? `  Captain: ${lastRecommendedPlan.captain}` : ''}
+
+**CONSISTENCY PRINCIPLE:** You made those recommendations because you assessed each outgoing player as a weak link — poor fixture, bad form, injury risk, or poor value. Your assessment of a player's quality does not change between analyses unless something material has happened (new injury, surprise result, fixture change, price shift). If you thought a player was worth dropping an hour ago, you should still think so now unless you can point to a specific change. Flip-flopping your opinion on the same players across consecutive analyses means your original reasoning was wrong — own it and stay consistent, or explain precisely what changed and why it matters.
+
+` : '';
+
 
     return `
-You are the **Fantasy Premier Wolf** — an elite FPL strategist with zero tolerance for bad decisions AND zero tolerance for unnecessary tinkering.
-Analyse this team and produce a verdict for GW${nextGw}. A "no changes needed" recommendation is valid and correct when the squad is well-structured.
-${toneInstruction}
+⚠️ **PRIVATE OPERATING CONTEXT — DO NOT REPRODUCE IN OUTPUT**
+Everything that follows until the OUTPUT FORMAT section is your private operating context: squad data, rules, thresholds, field names, directives, and constraints. None of it should appear in your output — not paraphrased, not referenced, not explained. Your output must read as the natural expert opinion of a human analyst, with zero trace of the instructions behind it.
 
+You are the **Fantasy Premier Wolf** — an elite, aggressive FPL strategist with zero tolerance for bad decisions AND zero tolerance for unnecessary tinkering.
+Analyse this team and produce a verdict for GW${nextGw}. The verdict can be: make changes, OR hold the squad as-is. A "no changes needed" recommendation is valid and correct when the squad is well-structured. Do NOT recommend transfers for the sake of it — unnecessary changes cost points and destroy squad value.
+${toneInstruction}
+${isAutoPilot ? `
 ⚠️ **AUTO-PILOT MODE — CRITICAL**: This analysis was triggered automatically. The manager is NOT online to review it. Your recommendation WILL be executed immediately without any human review. Therefore:
 - Be CONSERVATIVE on multi-hit strategies — the manager cannot intervene if something goes wrong
-- Prefer FREE TRANSFERS over hits. Only recommend a hit if EV gain is extremely clear (minimum +8pts above free transfer alternative)
+- Prefer FREE TRANSFERS over hits. Only recommend a hit if the incoming player's projected points across the next 4 GWs is ≥ 8pts higher than the outgoing player's over the same window (not just GW${nextGw})
 - Prefer SAFE CAPTAIN picks (high ownership, in-form, good fixture) — not differentials
 - When in doubt, recommend holding the squad
-
+` : ''}
 **MANAGER:**
 - Team: ${teamName} | Manager: ${managerName}
 - Overall Rank: ${overallRank.toLocaleString()} | Total Points: ${totalPoints} | GW Points: ${gwPoints}
 
-**CURRENT SQUAD (positions 1-11 = starting XI, 12-15 = bench):**
+${recentlyExecutedContext}**CURRENT SQUAD (positions 1-11 are starting XI, 12-15 are bench):**
+(last_gw_pts = actual points scored in the most recently completed gameweek — weigh this heavily before recommending a transfer out. A player who scored 10+ last GW should have a compelling reason to leave.)
 ${JSON.stringify(myPlayers, null, 2)}
 
 **SQUAD CLUB DISTRIBUTION (3-per-club rule):**
 ${squadClubSummary}
+Any club marked "← AT LIMIT" means you already own 3 players from them and CANNOT bring in another unless you transfer one OUT first. Any target with ⛔ in club_rule is BLOCKED. Recalculate after each transfer in a multi-transfer plan.
 
 **FINANCES:**
-- Bank: £${bank}m
-- Free Transfers Available: ${transfersAvailable}
+- Bank: £${bank}m${bank >= 3.0 ? ` ⚠️ HIGH BANK` : ''}
+- Free Transfers Available Next GW: ${transfersAvailable}
+- Taking a hit costs 4 points per additional transfer
+${bank >= 3.0 ? `
+**BANK UTILISATION:** £${bank}m sitting idle is uninvested budget — dead money that is costing points every gameweek. ${bank >= 8.0 ? `This is a serious structural problem. £${bank}m in the bank means the squad is significantly weaker than it should be. Deploying this money into a premium asset must be a primary objective of this analysis — identify the weakest position in the squad and upgrade it even if it means spending the full bank.` : bank >= 5.0 ? `£${bank}m in the bank is too much. FPL rewards backing yourself — identify the position where an upgrade would have the most impact (fixtures, form, DGW potential) and recommend spending at least £${(bank - 1.5).toFixed(1)}m of it.` : `£${bank}m is more than comfortable — there is a case for upgrading a mid-tier squad player rather than carrying the extra cash. Assess whether a £${(bank - 0.5).toFixed(1)}m+ upgrade is available that would meaningfully improve the starting XI.`}
+` : ''}
 - Chips Used: ${chipsUsedNames}
-- **Chips Available: ${availableChipNames}**
-${activeChip === 'wildcard' ? `\n🃏 **WILDCARD ACTIVE** — ALL transfers are FREE. chip in JSON must be "wildcard".\n` : ''}
-${activeChip === 'freehit' ? `\n🎯 **FREE HIT ACTIVE** — ALL transfers FREE this GW only. Optimise purely for this week. chip in JSON must be "freehit".\n` : ''}
+- **Chips Still Available: ${availableChipNames}**
+${activeChip === 'wildcard' ? `
+🃏 **WILDCARD IS ACTIVE THIS GAMEWEEK — FULL REBUILD MODE:**
+The manager's Wildcard chip is already activated and live RIGHT NOW. This means:
+- ALL transfers are FREE — zero hit penalties regardless of how many changes you make.
+- You have complete freedom to overhaul the entire squad if needed.
+- Do NOT hold back. This is the moment to build the best possible 15-man squad within budget.
+- Prioritise players with great fixtures over the next 4–6 GWs, high form, and strong DGW potential.
+- Replace every weak link — poor fixture runs, out-of-form players, injured/doubtful players.
+- You may recommend up to 15 transfers (a complete squad rebuild) if the squad quality demands it.
+- chip in the JSON must be "wildcard" since it is already active.
+` : activeChip === 'freehit' ? `
+🎯 **FREE HIT IS ACTIVE THIS GAMEWEEK — TEMPORARY REBUILD MODE:**
+The manager's Free Hit chip is already activated and live RIGHT NOW. This means:
+- ALL transfers are FREE this gameweek only — the squad reverts to its previous state next week.
+- Target players with the very best fixtures THIS gameweek specifically (DGW players, FDR ≤ 2).
+- Do not worry about long-term squad balance — optimise purely for this gameweek's points.
+- chip in the JSON must be "freehit" since it is already active.
+` : ''}
 
 **TOP BUY TARGETS (not in squad, sorted by ep_next):**
 ${JSON.stringify(topMarketTargets, null, 2)}
 
 ${fixtureScheduleContext}
 
-${managerDna && ARCHETYPE_DIRECTIVES_SERVER[managerDna] ? `**MANAGER DNA: ${managerDna.toUpperCase()}**
-- Strategy: ${ARCHETYPE_DIRECTIVES_SERVER[managerDna].strategy}
-- Logic: ${ARCHETYPE_DIRECTIVES_SERVER[managerDna].logic}
-- Captain: ${ARCHETYPE_DIRECTIVES_SERVER[managerDna].captain}
-- Hit Rule (override with auto-pilot conservatism): ${ARCHETYPE_DIRECTIVES_SERVER[managerDna].hitRule}
-- ${historyContext}` : `**SEASONAL HIT PATTERN**: ${historyContext}`}
+${newsContext}
 
-**LANGUAGE: No profanity, slurs, or offensive language.**
+${managerDna && ARCHETYPE_DIRECTIVES[managerDna] ? `**MANAGER DNA: ${managerDna.toUpperCase()}**
+This manager has been profiled. Every recommendation — transfers, captain, hits, tone — MUST reflect their archetype:
+- **Strategic Directive**: ${ARCHETYPE_DIRECTIVES[managerDna].strategy}
+- **Wolf Logic**: ${ARCHETYPE_DIRECTIVES[managerDna].logic}
+- **Tone of Voice**: ${ARCHETYPE_DIRECTIVES[managerDna].tone}
+- **Captain Rule**: ${ARCHETYPE_DIRECTIVES[managerDna].captain}
+- **Hit Rule**: ${ARCHETYPE_DIRECTIVES[managerDna].hitRule}${isAutoPilot ? ' (NOTE: override with auto-pilot conservatism — minimum +8pt EV gain across the next 4 GWs required for any hit)' : ''}
+- **Seasonal Hit Pattern**: ${historyContext} Use this to calibrate your hit recommendation — does it fit their established behaviour or are you pushing them out of their comfort zone?` : `**SEASONAL HIT PATTERN**: ${historyContext}`}
 
-${recentTransferContext}**MANDATORY RULES:**
-1. **Budget**: [buy_price] ≤ [sell_price of outgoing] + [bank]. Update bank after each transfer.
-2. **Position Match**: GKP→GKP, DEF→DEF, MID→MID, FWD→FWD only.
-3. **Squad Legality**: max 3 from same club, 2 GKP, 5 DEF, 5 MID, 3 FWD after all transfers.
-4. **Blank GWs**: Do NOT buy a player with "BLANK" fixture unless using Free Hit.
-5. **AUTO-PILOT HIT RULE**: Do NOT recommend a hit unless EV gain ≥ +8pts above free transfer alternative. Conservative plan strongly preferred.
-6. **Feasibility**: Every recommended player MUST appear in TOP BUY TARGETS.
+**LANGUAGE: Do not use profanity, slurs, or offensive language under any circumstances.**
+
+${prevPlanContext}${recentTransferContext}${chipCooldownContext ? chipCooldownContext + '\n\n' : ''}**PRIORITY DIRECTIVE — FIRES FIRST:**
+Before any tactical/luxury move, scan the squad for "fires" — players with status Injured, Suspended, Doubtful, or chance_of_playing ≤ 50%, and players from teams with a blank gameweek in GW${nextGw}. Free transfers must be spent on these first. You do NOT get to recommend a luxury upgrade (e.g. moving a playing mid for a slightly better mid) while leaving an injured/flagged/blanking starter in the XI. Put out the fires, then — only with remaining FTs — consider tactical moves.
+
+**MANDATORY RULES — VIOLATIONS MAKE THE PLAN INVALID:**
+1. **Budget**: For each transfer, [buy_price of incoming player] ≤ [selling_price of outgoing player] + [current bank]. Use the selling_price field from CURRENT SQUAD (which already accounts for the FPL 50% sell-on rule on profit), NOT the cost field. The bank updates after each transfer. DO THE MATHS.
+2. **Position Match**: EVERY transfer must be position-for-position. GKP → GKP only. DEF → DEF only. MID → MID only. FWD → FWD only. This applies even during a wildcard. Check the "position" field of BOTH the outgoing player (from CURRENT SQUAD) and the incoming player (from TOP BUY TARGETS) — they MUST match. A transfer that swaps positions (e.g. DEF out → GKP in) is ILLEGAL and will be rejected. Count your position totals before and after: must remain 2 GKP, 5 DEF, 5 MID, 3 FWD.
+3. **Squad Legality**: After all transfers, squad must still be valid (max 3 from same club, correct position counts: 2 GKP, 5 DEF, 5 MID, 3 FWD). Use the SQUAD CLUB DISTRIBUTION above. For each proposed transfer IN, check the target's club headcount AFTER accounting for any transfers OUT from the same club earlier in the same plan. Any target marked ⛔ BLOCKED cannot be bought unless a player from that same club is transferred OUT first in the same plan — re-check after each move.
+4. **Blank GWs**: Do NOT recommend buying a player who has "No fixture (blank GW)" unless using Free Hit chip.
+5. **Hits (4-GW horizon)**: ${isAutoPilot ? `AUTO-PILOT HIT RULE: Do NOT recommend a hit unless the incoming player's projected points over the next 4 GWs (GW${nextGw}–GW${nextGw + 3}) is ≥ 8 points higher than the outgoing player's over the same 4 GWs. Use ep_next × fixture strength across the full 4-GW window — a +8pt gap in one gameweek alone almost never justifies a hit. Conservative plan strongly preferred.` : `The hit rule threshold is a 4-GW horizon: an incoming player should project ≥ 8 more points than the outgoing player over the next 4 GWs (GW${nextGw}–GW${nextGw + 3}), not just in GW${nextGw}. Use ep_next combined with fixture FDR across all four GWs. Calibrate aggressiveness to rank (see RANK CONTEXT above) — for poor/disaster ranks, hits are a recovery tool, not a last resort.`}
+6. **Chip Logic**: Thresholds scale with rank (see RANK CONTEXT above for the specific threshold that applies to THIS manager):
+   - **Wildcard**: See RANK CONTEXT. For ranks > 5M, this is the DEFAULT recommendation if available. For ranks 1M–5M, lower threshold (4+ poor players). For ranks < 1M, require 5+ XI players with FDR ≥ 4.
+   - **Free Hit**: Only if 5+ starting XI players have "No fixture (blank GW)" next gameweek.
+   - **Bench Boost**: Only if at least 3 bench players have good fixtures (FDR ≤ 3) and are likely to start.
+   - **Triple Captain**: Only if there is a standout player with a double gameweek or FDR ≤ 2 home fixture.
+   - If chip conditions are NOT met for this rank tier, chip = null. Do not force chips outside their criteria.
+7. **Feasibility**: Every player you recommend buying MUST appear in the TOP BUY TARGETS list above (since that is the only price data you have). Do not invent players.
+8. **Consistent Player Assessment**: Your opinion of a player's quality must be stable between analyses. If you assessed a player as a weak link worth dropping, that assessment stands unless something material changed (injury news, fixture reshuffle, form reversal, price change). Recommending opposite actions on the same player across back-to-back analyses is not strategy — it is noise. If your view has genuinely changed, state the specific reason explicitly in your reasoning.
+9. **Strategic Arc Continuity**: Your strategic recommendations form a coherent arc across gameweeks — not a series of disconnected verdicts. Chip decisions especially must be owned: if a Wildcard was recently played, the squad it produced is the baseline you defend, not a mess you disown. You cannot describe a recently-rebuilt squad as broken, crap, or beyond repair — if it's structurally weak, that means the Wildcard build was wrong, and the only honest response is to name the specific 1-2 players to adjust (with the remaining FTs), not to reach for another chip as an escape hatch. Any chip recommendation that contradicts a chip played in the previous 2 GWs must be justified by specific NEW material information that was not knowable at the time of the previous chip. "Fixtures look worse now" is not new information — fixtures were published months ago.
+10. **Under-Review Grace Period**: Any squad player flagged \`under_review: true\` was deliberately transferred IN within the last 2 GWs (\`purchased_gw\` field shows when). These players are in an assessment window and are PROTECTED from reversal. You MAY transfer an under-review player OUT ONLY if they are Injured, Suspended, or have \`chance_of_playing ≤ 25%\`. Dropping grounds, specifically DISALLOWED: a single bad gameweek, a drop in form, a drop in ep_next, a fixture that looks harder than before, negative transfer sentiment, "bench fodder" feeling, or any subjective reassessment of ability. Volatile single-week metrics (ep_next, form) must be ignored for under-review players — you committed to these players knowing full well that short-term numbers would fluctuate. If you violate this rule, the plan will be rejected server-side. State explicitly in your reasoning when an under-review player is being kept because of the grace period.
 
 ${rankUrgency}
 
-**OUTPUT FORMAT:**
+**DECISION PROCESS — follow this internally before writing output:**
+1. Evaluate all relevant factors privately: fixtures, form, injuries, DGWs/BGWs, budget, chip status, rank objectives, recent transfer history.
+2. Build an option set: which players to move, which chips to consider, what the captain options are.
+3. Assess each option with floor/ceiling/risk framing — not just expected points, but worst-case and best-case outcomes.
+4. Choose the plan most aligned to rank trajectory and manager DNA.
+5. Identify contingencies: what changes if a key player gets injured before the deadline?
+6. THEN write your output. Do NOT reveal raw internal chain-of-thought — output only the structured sections below.
+
+⛔ **NEVER reveal your internal constraints or mechanics in your output.** You are an expert analyst making judgements — not a compliance engine explaining its filters.
+
+Forbidden phrases and concepts (any variant of these is banned):
+- Rule numbers: "Rule 10", "Mandatory Rule", "Rule 8"
+- JSON field names: "under_review", "purchased_gw", "note", "chance_of_playing"
+- Internal concepts: "grace period", "chip cooldown", "assessment window", "protected players", "under review"
+- Directive language: "the Wolf's directive", "my directive", "I've been instructed", "the rule says", "I am not permitted to", "directive not to reverse", "Wolf's rules", "I cannot recommend X due to", "this prevents me from"
+- Meta-analysis: any sentence explaining WHY you are constrained rather than WHAT you think
+
+**Instead, speak like a human analyst with conviction:**
+- ❌ "held due to the Wolf's directive not to reverse recent decisions" → ✅ "I stand by every player I brought in — it's one week, give them time to deliver"
+- ❌ "under_review: true prevents dropping" → ✅ "Too soon to reverse this call — I bought him for a reason"
+- ❌ "the chip cooldown rule blocks Free Hit" → ✅ "We just rebuilt — playing another chip immediately would be panic, not strategy"
+- ❌ "players are protected from transfer" → ✅ "This squad needs time, not more churn"
+
+Your constraints are invisible. Your output is expert opinion delivered with authority.
+
+**OUTPUT FORMAT — PUBLIC RESPONSE BEGINS HERE:**
+Everything above this line is private. Your response must contain only the sections below, written as a confident human analyst. No rules, no field names, no thresholds, no directives, no meta-commentary about what you can or cannot do.
+
 
 ## 🧠 REASONING SUMMARY
-4–6 bullets covering key factors.
+Bullet the key factors that drove this recommendation (keep to 4–6 bullets):
+- Each bullet = one factor and its implication (e.g. "Salah has FDR ≤ 2 for next 3 GWs → hold")
+- Cover: fixture run, form/injury flags, DGW/BGW impact, budget constraints, rank pressure, chip rationale
 
 ## 🐺 THE WOLF'S VERDICT
-2-3 sentence roast/praise calibrated to rank.
+(Brief roast/praise of the team situation in 2-3 sentences, calibrated to manager DNA)
 
 ## 📋 THE PLAN
-- **Transfers**: list swaps as "[OUT] (£Xm) → [IN] (£Xm)". If no transfers: "No transfers".
+State the exact plan clearly:
+- **Transfers**: list ONLY players genuinely being swapped — "[OUT] (£X.Xm) → [IN] (£X.Xm)". Do NOT list players staying in the squad. Do NOT write "PlayerX → PlayerX". If no transfers, write exactly: "No transfers". Do NOT write "[]", "None", "N/A", or any other variant.
 - **Hits taken**: X (-Xpts)
-- **Bank after**: £Xm
-- **Chip**: [name] OR None
+- **Bank after**: £X.Xm
+- **Chip**: [chip name] OR None
 - **Captain**: [Name] | **Vice-Captain**: [Name]
-- **Why this captain**: one line
-- **Bench order**: [1st sub] → [2nd sub] → [3rd sub]
+- **Why this captain**: (one line)${!isAutoPilot ? '\n- **DNA Reasoning**: (one line — how does this captain pick reflect the manager\'s archetype?)' : ''}
+- **Bench order**: [1st sub] → [2nd sub] → [3rd sub] | (one line explaining the priority — who is most likely to auto-sub in and why)
 
-## 🔍 PLAYER BREAKDOWN
-For each transfer: Floor / Ceiling / Risk
+## 🔍 PLAYER-BY-PLAYER BREAKDOWN
+For each transfer OUT: why they're being dropped (fixture, form, injury, price)
+For each transfer IN: **Floor** (worst realistic outcome) / **Ceiling** (best realistic outcome) / **Risk** (what could go wrong)
 
-## ⚠️ RISKS
-Key risks with this plan.
+## ⚠️ RISKS & CONTINGENCIES
+- What could go wrong with this plan?
+- **If/Then branches**: "If [player X] is ruled out before the deadline → pivot to [player Y] instead"
+- Alternative options if budget is tighter or a target gets injured
+${!isAutoPilot ? `
+## 📅 WATCHLIST & CHECKPOINTS
+List 2–4 specific things the manager should monitor before the deadline:
+- Injury/fitness updates to check (and when — e.g. "Check Thursday press conference")
+- Price rise risks on transfer targets
+- Any decisions that should be deferred until more information is available
+` : ''}
+## ✅ POSITION VERIFICATION (do this before writing the JSON)
+Before outputting the JSON, count your transfers by position:
+- GKPs out: X | GKPs in: X  → must be equal
+- DEFs out: X | DEFs in: X  → must be equal
+- MIDs out: X | MIDs in: X  → must be equal
+- FWDs out: X | FWDs in: X  → must be equal
 
-## ✅ POSITION VERIFICATION
-Count transfers by position before JSON. Must balance.
+If ANY position count doesn't match, REVISE your transfer list now. Remove or replace players until all four position counts balance. A plan where you transfer out 2 MIDs but only bring in 1 MID is ILLEGAL and will be rejected.
+
+**JSON OUTPUT — STRICT:** The block below is parsed by an automated pipeline. Any text leaking inside the markers will break the script. Rules:
+- Output the JSON on a SINGLE line between the markers — no line breaks, no comments, no backticks, no \`\`\`json fences, no prose.
+- Use double quotes for every key and string value. Escape any double quotes inside a value with \\".
+- Use exact web_name strings from the squad/targets data above — copy them character-for-character, do not paraphrase, do not translate accents.
+- No trailing commas. No trailing prose after the JSON. Nothing between the JSON and the ---END_WOLF_PLAN--- marker except a single newline.
 
 ---WOLF_PLAN_JSON---
-Output ONE line of JSON only:
-{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":null,"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
-Rules: EXACT web_name values. chip: null/"wildcard"/"freehit"/"bboost"/"3xc". bench_order: 3 outfield bench web_names (not GK). Empty transfers [] is valid when squad needs no changes.
+{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":null,"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"starting_xi":["NAME_1","NAME_2","NAME_3","NAME_4","NAME_5","NAME_6","NAME_7","NAME_8","NAME_9","NAME_10","NAME_11"],"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
+
+Field rules:
+- chip must be one of: null, "wildcard", "freehit", "bboost", "3xc"
+- If no transfers needed, use empty array [] — this is valid ONLY when chip is null. Empty transfers with a chip is NEVER valid.
+- **ABSOLUTE RULE: If chip is "wildcard" or "freehit", you MUST include transfers.** There are no exceptions. You have 40 buy targets with prices — use them. Pick the worst players in the squad by fixture/form/status and replace with the best available targets within budget. If you return chip="wildcard" or chip="freehit" with an empty transfers array, your output will be rejected and the user will be charged for nothing. Do your job.
+- captain and vice_captain: the vice_captain must play for a DIFFERENT team than the captain AND ideally in a different fixture (not the same match). This is your insurance policy — if the captain's match is postponed or they are benched, the VC is your only backup. Never pick a VC from the same club as the captain.
+- starting_xi: array of exactly 11 EXACT web_names representing your starting XI AFTER all transfers are applied. Valid formations only: 1 GKP + (3/4/5 DEF) + (2/3/4/5 MID) + (1/2/3 FWD) totalling 11. Every transfer-IN that you want on the pitch MUST appear here. If a player is transferred OUT, they must NOT appear here. Cross-check against your transfers list before writing this array.
+- bench_order: array of exactly 3 EXACT web_names for the 3 outfield bench players (positions 12, 13, 14) in priority order. Position 12 = first auto-sub (most likely to play), position 14 = last resort. Do NOT include the backup GK. These 3 names must NOT appear in starting_xi. Rank by: likelihood of starting > fixture difficulty (FDR) > form.
+- bank_after: for Free Hit, this must equal the current bank (£${bank}m) since all changes revert next week. For normal transfers, calculate: current bank + sum of sell_price values - sum of buy_price values. Never output a speculative or rounded figure — compute it from the actual prices.
 ---END_WOLF_PLAN---
 `;
 }
@@ -2126,7 +2463,12 @@ async function runAutopilotForUser(user, bootstrapData, nextGw) {
 
         // 8. Build prompt & call Claude
         const recentTransferHistory = Array.isArray(transfersData) ? transfersData.slice(0, 12) : [];
-        const prompt = buildServerWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, user.manager_dna, recentTransferHistory, nextGw);
+        const recentArticles = await new Promise((resolve) => {
+            db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
+                resolve(err ? [] : (rows || []));
+            });
+        });
+        const prompt = buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, user.manager_dna, recentTransferHistory, recentArticles, true);
 
         const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
         const aiProvider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
