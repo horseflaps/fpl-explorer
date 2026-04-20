@@ -736,7 +736,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     <LogIn size={16} className="text-[#00ff87]" />
                                 </div>
                                 <div className="text-left">
-                                    <div className="text-xs text-[#00ff87] font-bold uppercase tracking-wide">FPL Connected</div>
+                                    <div className="text-xs text-[#00ff87] font-bold uppercase tracking-wide">FPL Linked</div>
                                     <div className="text-sm text-white">Team ID: {fplEntryId}</div>
                                 </div>
                             </div>
@@ -2310,12 +2310,19 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                         <p className="text-white/60 text-sm italic">No transfers recommended — hold your free transfers.</p>
                                     ) : (
                                         <div className="space-y-2">
-                                            <div className="text-white/40 text-xs uppercase font-bold tracking-widest mb-2">Transfers</div>
+                                            {wolfPlan.chip === 'freehit' ? (
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <div className="text-white/40 text-xs uppercase font-bold tracking-widest">Transfers</div>
+                                                    <span className="bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">🎯 Free Hit — reverts next GW</span>
+                                                </div>
+                                            ) : (
+                                                <div className="text-white/40 text-xs uppercase font-bold tracking-widest mb-2">Transfers</div>
+                                            )}
                                             {wolfPlan.transfers.filter(t => t.out_name && t.in_name).map((t, i) => (
-                                                <div key={i} className="flex items-center gap-3 bg-white/5 rounded-lg px-4 py-3">
+                                                <div key={i} className={`flex items-center gap-3 rounded-lg px-4 py-3 ${wolfPlan.chip === 'freehit' ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5'}`}>
                                                     <span className="text-red-400 font-bold text-sm flex-1">↑ {t.out_name} <span className="text-white/40 font-normal">£{t.sell_price}m</span></span>
                                                     <span className="text-white/30 text-lg">→</span>
-                                                    <span className="text-[#00ff87] font-bold text-sm flex-1 text-right">{t.in_name} ↓ <span className="text-white/40 font-normal">£{t.buy_price}m</span></span>
+                                                    <span className={`font-bold text-sm flex-1 text-right ${wolfPlan.chip === 'freehit' ? 'text-amber-400' : 'text-[#00ff87]'}`}>{t.in_name} ↓ <span className="text-white/40 font-normal">£{t.buy_price}m</span></span>
                                                 </div>
                                             ))}
                                         </div>
@@ -2414,7 +2421,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                             <div className="flex items-center justify-between gap-3 px-1">
                                                 <p className="text-gray-500 text-xs">
                                                     {fplEntryId && fplEntryId !== entryId
-                                                        ? 'Execute is only available for your connected team.'
+                                                        ? 'Execute is only available for your linked team.'
                                                         : 'Connect this team via the FPL extension to execute.'}
                                                 </p>
                                                 {/* Show connect button only when this entry matches their linked FPL ID but session has lapsed */}
@@ -2691,7 +2698,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
                                     <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
-                                    Last saved lineup from when this team was connected{cachedLineupDate ? ` · ${new Date(cachedLineupDate).toLocaleDateString()}` : ''}.
+                                    Last saved lineup from when this team was linked{cachedLineupDate ? ` · ${new Date(cachedLineupDate).toLocaleDateString()}` : ''}.
                                 </div>
                             </div>
                         </div>
@@ -3295,7 +3302,7 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 <AlertTriangle size={15} className="text-yellow-400 shrink-0 mt-0.5" />
                                 <p className="text-yellow-200/80 text-xs leading-relaxed">
                                     {!fplConnected
-                                        ? 'Your FPL account is not connected. Make sure the team shown on screen is identical to your FPL squad — the Wolf analyses what it can see, not what\'s on the FPL website.'
+                                        ? 'Your FPL account is not linked. Make sure the team shown on screen is identical to your FPL squad — the Wolf analyses what it can see, not what\'s on the FPL website.'
                                         : 'On Scout tier the Wolf analyses the squad shown on screen. Ensure it matches your FPL team exactly before running.'
                                     }
                                 </p>
@@ -3328,9 +3335,9 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             <AlertTriangle className="text-yellow-400 w-6 h-6" />
                         </div>
                         <div className="space-y-2">
-                            <h3 className="text-white font-black text-lg">FPL Account Not Connected</h3>
+                            <h3 className="text-white font-black text-lg">FPL Account Not Linked</h3>
                             <p className="text-gray-400 text-sm leading-relaxed">
-                                Your {user?.membership_tier === 3 ? 'Autopilot' : 'Co-Pilot'} tier includes automatic transfer execution — but your FPL account isn't connected. Connect first to get the full experience.
+                                Your {user?.membership_tier === 3 ? 'Autopilot' : 'Co-Pilot'} tier includes automatic transfer execution — but your FPL account isn't linked. Link first to get the full experience.
                             </p>
                         </div>
                         <div className="space-y-3">

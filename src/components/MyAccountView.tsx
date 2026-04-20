@@ -105,7 +105,7 @@ const MyAccountView: React.FC = () => {
                     type: 'error',
                     text: noToken
                         ? 'No FPL session found. Visit fantasy.premierleague.com while logged in, then try again.'
-                        : `Connection failed: ${detail?.error || 'unknown error'}`
+                        : `Link failed: ${detail?.error || 'unknown error'}`
                 });
                 setReconnecting(false);
             } else {
@@ -204,7 +204,7 @@ const MyAccountView: React.FC = () => {
                 <div className="flex items-center justify-between px-6 py-4">
                     <div className="flex items-center gap-3">
                         <div className="w-4 h-4 rounded-full border-2 border-gray-500" />
-                        <span className="text-sm text-gray-400">FPL connection</span>
+                        <span className="text-sm text-gray-400">FPL link</span>
                     </div>
                     {fplConnected ? (
                         <div className="flex items-center gap-2">
@@ -220,7 +220,7 @@ const MyAccountView: React.FC = () => {
                                     </button>
                                 </>
                             ) : (
-                                <button onClick={() => setConfirmDisconnect(true)} className="text-gray-600 hover:text-orange-400 transition-colors" title="Disconnect">
+                                <button onClick={() => setConfirmDisconnect(true)} className="text-gray-600 hover:text-orange-400 transition-colors" title="Unlink">
                                     <Unlink size={13} />
                                 </button>
                             )}
@@ -232,7 +232,7 @@ const MyAccountView: React.FC = () => {
                                 onClick={handleReconnect}
                                 className="flex items-center gap-2 px-3 py-1.5 bg-fpl-green/10 hover:bg-fpl-green/20 text-fpl-green font-bold text-xs rounded-lg transition-colors border border-fpl-green/20 disabled:opacity-50"
                             >
-                                {reconnecting ? 'Connecting...' : `Connect to ${fplTeamName ?? `#${fplEntryId}`}`}
+                                {reconnecting ? 'Linking...' : `Link to ${fplTeamName ?? `#${fplEntryId}`}`}
                             </button>
                             {reconnectMsg && (
                                 <p className={`text-xs max-w-[220px] text-right ${reconnectMsg.type === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
@@ -242,7 +242,7 @@ const MyAccountView: React.FC = () => {
                         </div>
                     ) : (
                         <span className="flex items-center gap-1.5 text-sm text-gray-500 font-semibold">
-                            <XCircle className="w-4 h-4" /> No Connection Available
+                            <XCircle className="w-4 h-4" /> No Link Available
                         </span>
                     )}
                 </div>

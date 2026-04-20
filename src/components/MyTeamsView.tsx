@@ -166,7 +166,30 @@ const MyTeamsView: React.FC = () => {
             {/* My Teams Tab */}
             {tab === 'teams' && (
                 <>
-                    <h2 className="text-3xl font-black text-white tracking-tight">My Teams</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-black text-white tracking-tight">My Teams</h2>
+                        <div className="group relative">
+                            <button className="w-5 h-5 rounded-full bg-slate-700 border border-slate-500 text-gray-400 text-xs font-black flex items-center justify-center hover:border-[#00ff87]/50 hover:text-[#00ff87] transition-colors">?</button>
+                            <div className="pointer-events-none absolute left-0 top-7 z-50 w-72 bg-slate-900 border border-slate-600 rounded-xl p-4 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity space-y-3 text-xs text-gray-300">
+                                <div>
+                                    <p className="text-[#00ff87] font-black uppercase tracking-wider mb-1">Linked</p>
+                                    <p>Your FPL account is linked. The Wolf can read your live squad, execute transfers, and run Auto-Pilot on this team. Only one team can be linked at a time.</p>
+                                </div>
+                                <div>
+                                    <p className="text-[#02efff] font-black uppercase tracking-wider mb-1">Loaded</p>
+                                    <p>A team you've browsed or analysed recently. The Wolf can analyse it and you can view the squad, but transfers cannot be executed and Auto-Pilot is not available — that would require logging into that team's account on Fantasy Premier League.</p>
+                                </div>
+                                <div>
+                                    <p className="text-white/50 font-black uppercase tracking-wider mb-1">Previously Linked</p>
+                                    <p>Teams you've linked to in the past but are not currently active.</p>
+                                </div>
+                                <div>
+                                    <p className="text-white/50 font-black uppercase tracking-wider mb-1">Never Linked</p>
+                                    <p>Teams you've searched and saved for analysis only. No FPL account link has ever been established — analysis is available but execution and Auto-Pilot are not.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     {/* Team Search */}
                     <div className="relative">
@@ -252,7 +275,7 @@ const MyTeamsView: React.FC = () => {
                                             <div className="font-bold text-white text-lg group-hover:text-[#00ff87] transition-colors">{team.name.replace(/\s*\(GW\d+\)$/, '')}</div>
                                             {isConnected && (
                                                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00ff87]/10 border border-[#00ff87]/30 text-[#00ff87] text-xs font-bold">
-                                                    <Wifi size={10} /> Connected
+                                                    <Wifi size={10} /> Linked
                                                 </span>
                                             )}
                                             {isAutopilot && (
@@ -263,7 +286,7 @@ const MyTeamsView: React.FC = () => {
                                         </div>
                                         <div className="text-xs text-gray-400 mt-1">Manager: {data.manager || 'Unknown'}</div>
                                         {connectedAtStr && (
-                                            <div className="text-xs text-gray-500 mt-0.5">{isConnected ? 'Last connected:' : 'Previously connected:'} {connectedAtStr}</div>
+                                            <div className="text-xs text-gray-500 mt-0.5">{isConnected ? 'Last linked:' : 'Previously linked:'} {connectedAtStr}</div>
                                         )}
                                     </div>
                                     <div className="flex items-center gap-3 ml-3">
@@ -280,7 +303,7 @@ const MyTeamsView: React.FC = () => {
                             <div className="space-y-8">
                                 {connectedTeams.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Current Connected Team</h3>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Current Linked Team</h3>
                                         <div className="grid gap-4">{connectedTeams.map(renderTeamCard)}</div>
                                     </div>
                                 )}
@@ -290,16 +313,16 @@ const MyTeamsView: React.FC = () => {
                                         <div className="grid gap-4">{renderTeamCard(currentlyLoadedTeam)}</div>
                                     </div>
                                 )}
-                                {prevConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).length > 0 && (
+                                {prevConnectedTeams.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Previously Connected</h3>
-                                        <div className="grid gap-4">{prevConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).map(renderTeamCard)}</div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Previously Linked</h3>
+                                        <div className="grid gap-4">{prevConnectedTeams.map(renderTeamCard)}</div>
                                     </div>
                                 )}
-                                {neverConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).length > 0 && (
+                                {neverConnectedTeams.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Never Connected</h3>
-                                        <div className="grid gap-4">{neverConnectedTeams.filter(t => t.id !== currentlyLoadedTeam?.id).map(renderTeamCard)}</div>
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Never Linked</h3>
+                                        <div className="grid gap-4">{neverConnectedTeams.map(renderTeamCard)}</div>
                                     </div>
                                 )}
                             </div>

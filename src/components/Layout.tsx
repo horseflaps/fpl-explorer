@@ -17,11 +17,13 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek, activeGamewe
     const location = useLocation();
     const { user, logout, token, fplEntryId, fplConnected, loginGlow, showFplConnectedModal, dismissFplConnectedModal, showFplDisconnectedToast, dismissFplDisconnectedToast, isLoginOpen, setIsLoginOpen, isVerified } = useAuth();
 
-    // Suppress autopilot dot when viewing a different team in the Analyse tab
+    // Suppress autopilot dot when a non-connected team is active (either via URL or last loaded)
     const analyseEntryId = location.pathname === '/analyse'
         ? Number(new URLSearchParams(location.search).get('entry')) || null
         : null;
-    const showAutopilotDot = !!(user?.autopilot_enabled && fplConnected && (analyseEntryId === null || analyseEntryId === fplEntryId));
+    const lastLoadedEntryId = Number(localStorage.getItem('last_analysed_entry')) || null;
+    const activeEntryId = analyseEntryId ?? lastLoadedEntryId;
+    const showAutopilotDot = !!(user?.autopilot_enabled && fplConnected && (activeEntryId === null || activeEntryId === fplEntryId));
     const [showDNAQuiz, setShowDNAQuiz] = useState(false);
 
     useEffect(() => {
@@ -93,7 +95,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek, activeGamewe
 
                         <div>
                             <p className="text-[#00ff87] text-xs font-black uppercase tracking-[0.2em] mb-2">FPL Account</p>
-                            <h2 className="text-white text-3xl font-black tracking-tight">Connected</h2>
+                            <h2 className="text-white text-3xl font-black tracking-tight">Linked</h2>
                             <p className="text-slate-400 text-sm mt-3">Your FPL account is now linked.<br />The Wolf has access to your team.</p>
                         </div>
 
@@ -129,7 +131,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek, activeGamewe
 
                         <div>
                             <p className="text-red-500 text-xs font-black uppercase tracking-[0.2em] mb-2">FPL Account</p>
-                            <h2 className="text-white text-3xl font-black tracking-tight">Disconnected</h2>
+                            <h2 className="text-white text-3xl font-black tracking-tight">Unlinked</h2>
                             <p className="text-slate-400 text-sm mt-3">Your FPL account has been unlinked.<br />Log into FPL to reconnect automatically.</p>
                         </div>
 
@@ -209,7 +211,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentGameweek, activeGamewe
                                     <div>
                                         <div className="text-xs text-gray-500 uppercase font-bold">Logged in as</div>
                                         <div className="text-sm font-bold text-white max-w-[120px] truncate" title={user.displayname}>{user.displayname}</div>
-                                        {fplConnected && <div className="text-xs text-green-400 font-semibold">FPL Connected ✓</div>}
+                                        {fplConnected && <div className="text-xs text-green-400 font-semibold">FPL Linked ✓</div>}
                                     </div>
                                 </div>
                                 <button

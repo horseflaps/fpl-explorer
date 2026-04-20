@@ -43,7 +43,7 @@ const HomeView: React.FC = () => {
                     onClick={() => navigate('/setup')}
                     className="px-8 py-4 bg-[#00ff87] text-[#37003c] font-black text-lg uppercase tracking-wider rounded-xl hover:bg-[#00ff87]/90 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.4)]"
                 >
-                    Get Connected
+                    Get Linked
                 </button>
             );
         }
@@ -173,10 +173,10 @@ const HomeView: React.FC = () => {
                     <div className="w-2 h-2 rounded-full bg-[#00ff87] shadow-[0_0_6px_#00ff87]" />
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-[#00ff87]">Live FPL Integration</p>
                 </div>
-                <h2 className="text-3xl font-black text-white uppercase italic tracking-tight mb-4 text-center">How the Connection Works</h2>
+                <h2 className="text-3xl font-black text-white uppercase italic tracking-tight mb-4 text-center">How the Link Works</h2>
                 <p className="text-gray-400 text-center max-w-2xl mx-auto mb-10 leading-relaxed">
                     FantasyPremierWolf links directly to your FPL account using a browser extension — no passwords shared, no manual entry.
-                    Once connected, your live team, pending transfers, and captain choices sync automatically.
+                    Once linked, your live team, pending transfers, and captain choices sync automatically.
                 </p>
                 <div className="grid md:grid-cols-4 gap-6">
                     <div className="flex flex-col items-center text-center gap-3">
@@ -265,7 +265,7 @@ const HomeView: React.FC = () => {
                     <tbody className="text-sm text-gray-300">
                         <tr className="border-b border-white/5">
                             <td className="py-4 pr-4 font-bold text-white">No Extension</td>
-                            <td className="py-4 pr-4">Get Connected</td>
+                            <td className="py-4 pr-4">Get Linked</td>
                             <td className="py-4 pr-4">Navigate to Setup</td>
                             <td className="py-4 text-[#00ff87]">→ /setup page</td>
                         </tr>
@@ -290,7 +290,7 @@ const HomeView: React.FC = () => {
                             </td>
                         </tr>
                         <tr>
-                            <td className="py-4 pr-4 font-bold text-white">Logged In & Connected</td>
+                            <td className="py-4 pr-4 font-bold text-white">Logged In & Linked</td>
                             <td className="py-4 pr-4 font-bold text-[#00ff87]">Get Analysis</td>
                             <td className="py-4 pr-4 text-[#00ff87]/80">Navigate to Analyse</td>
                             <td className="py-4 text-[#00ff87]">→ /analyse</td>

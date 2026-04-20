@@ -32,7 +32,7 @@ const faqs = [
     },
     {
         q: 'Does the platform work on mobile?',
-        a: `The web app is fully responsive and works on mobile browsers. However, the Chrome extension — which enables automatic FPL account sync — requires a desktop Chrome browser. On mobile you can still use all data tools and manually search teams. For the full connected experience, set up the extension on desktop first; your account link will then persist across devices.`,
+        a: `The web app is fully responsive and works on mobile browsers. However, the Chrome extension — which enables automatic FPL account sync — requires a desktop Chrome browser. On mobile you can still use all data tools and manually search teams. For the full linked experience, set up the extension on desktop first; your account link will then persist across devices.`,
     },
     {
         q: 'What are FPL chips and does the Wolf know when to use them?',
@@ -40,7 +40,7 @@ const faqs = [
     },
     {
         q: 'How do I get the best results from the AI analysis?',
-        a: `A few tips: (1) Make sure your FPL account is connected so the Wolf has your real team, bank balance, and chip status — not a guessed approximation. (2) Run analysis a few days before the gameweek deadline when the fixture picture is clear and team news is emerging. (3) Read the full reasoning, not just the headline pick — understanding why the Wolf recommends a player helps you judge whether a last-minute injury or team news changes the conclusion. (4) Use the Players and Fixtures tabs to verify the underlying data yourself before confirming any transfer.`,
+        a: `A few tips: (1) Make sure your FPL account is linked so the Wolf has your real team, bank balance, and chip status — not a guessed approximation. (2) Run analysis a few days before the gameweek deadline when the fixture picture is clear and team news is emerging. (3) Read the full reasoning, not just the headline pick — understanding why the Wolf recommends a player helps you judge whether a last-minute injury or team news changes the conclusion. (4) Use the Players and Fixtures tabs to verify the underlying data yourself before confirming any transfer.`,
     },
     {
         q: 'Why did I get a different analysis for the same team?',

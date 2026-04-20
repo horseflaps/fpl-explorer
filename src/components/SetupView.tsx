@@ -11,7 +11,7 @@ const SetupView: React.FC = () => {
             <div className="max-w-4xl mx-auto relative z-10">
                 <div className="text-center mb-16 space-y-4">
                     <h1 className="text-5xl font-black text-white tracking-tight">
-                        Get <span className="text-fpl-green">Connected</span>
+                        Get <span className="text-fpl-green">Linked</span>
                     </h1>
                     <p className="text-gray-400 text-lg max-w-2xl mx-auto">
                         Follow these simple steps to sync your Fantasy Premier League team with the Wolf dashboard automatically.
@@ -84,7 +84,7 @@ const SetupView: React.FC = () => {
                             make the agreed changes to your team securely and accurately.
                                   </p>
                                   <p className="text-gray-400 leading-relaxed">
-                                  Also, the connection must be made before activating Auto-Pilot, once activated it's just set and forget so you don't need to leave your device on.
+                                  Also, the link must be established before activating Auto-Pilot, once activated it's just set and forget so you don't need to leave your device on.
                                     </p>
                     </div>
                 </div>

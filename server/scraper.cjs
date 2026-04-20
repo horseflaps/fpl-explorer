@@ -14,9 +14,9 @@ const SOURCES = [
         parser: (text) => text.trim()
     },
     {
-        name: 'Sky Sports',
-        url: 'https://www.skysports.com/football/transfer-paper-talk',
-        selector: '.sdc-article-body p, .sdc-news-article-body--lead p',
+        name: 'Sky Sports (Transfer Centre)',
+        url: 'https://www.skysports.com/transfer-centre',
+        selector: '.sdc-article-body p, .sdc-news-article-body--lead p, .sdc-site-tile__headline, .news-list__headline',
         parser: (text) => text.trim()
     },
     {
@@ -32,39 +32,33 @@ const SOURCES = [
         parser: (text) => text.trim()
     },
     {
-        name: 'SportsMole',
-        url: 'https://www.sportsmole.co.uk/football/premier-league/',
-        selector: '.sm-news-title a, a[href*="/football/"] span, .sm-news-body, p',
-        parser: (text) => text.trim()
-    },
-    {
         name: 'TransferFeed',
         url: 'https://www.transferfeed.com/',
         selector: '.title-link, a.title, .article-title a, .post-title, h2, h3, p',
         parser: (text) => text.trim()
     },
     {
-        name: 'Transfer League',
-        url: 'https://www.transferleague.co.uk/',
-        selector: '.news-content p, .article-content p, h3 a, p, td',
+        name: 'Premier League Transfers',
+        url: 'https://www.premierleague.com/transfers',
+        selector: '.transferCardWrapper p, .transferCard__playerInfo, .player__name, .transferCard__clubName, p',
         parser: (text) => text.trim()
     },
     {
-        name: 'FBref',
-        url: 'https://fbref.com/en/',
-        selector: '.news_item, .news_article p',
+        name: 'FourFourTwo',
+        url: 'https://www.fourfourtwo.com/features/transfer-news',
+        selector: 'article p, .article-body p, .content-body p, h2, h3',
         parser: (text) => text.trim()
     },
     {
-        name: 'Transfermarkt',
-        url: 'https://www.transfermarkt.co.uk/',
-        selector: '.news-teaser p, .news-headline',
+        name: 'Mirror Football',
+        url: 'https://www.mirror.co.uk/sport/football/transfer-news/',
+        selector: 'article p, .article-body p, .mirror-article-body p, h2, h3',
         parser: (text) => text.trim()
     },
     {
-        name: 'WhoScored / Sofascore',
-        url: 'https://www.whoscored.com/',
-        selector: '#news-feed p, .news-item a',
+        name: 'Express Football',
+        url: 'https://www.express.co.uk/sport/football/transfer-news',
+        selector: 'article p, .article-text p, .text-description p, h2, h3',
         parser: (text) => text.trim()
     }
 ];

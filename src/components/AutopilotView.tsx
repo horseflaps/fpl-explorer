@@ -158,7 +158,7 @@ export default function AutopilotView() {
                         <div className="flex items-center gap-3 bg-[#00ff87]/5 border border-[#00ff87]/20 rounded-xl px-4 py-3">
                             <div className="w-2 h-2 rounded-full bg-[#00ff87] shrink-0" />
                             <p className="text-sm text-gray-300">
-                                Auto-Pilot is configured for your connected team: <span className="font-bold text-white">{status.connected_team_name}</span>. Settings here apply to that team only.
+                                Auto-Pilot is configured for your linked team: <span className="font-bold text-white">{status.connected_team_name}</span>. Settings here apply to that team only.
                             </p>
                         </div>
                     )}
@@ -168,7 +168,7 @@ export default function AutopilotView() {
                         <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
                             <AlertTriangle size={16} className="text-yellow-400 shrink-0 mt-0.5" />
                             <p className="text-yellow-200/80 text-sm leading-relaxed">
-                                Your FPL account is not connected. Auto-pilot cannot execute transfers without it. Connect your FPL account via the Setup tab.
+                                Your FPL account is not linked. Auto-pilot cannot execute transfers without it. Link your FPL account via the Setup tab.
                             </p>
                         </div>
                     )}

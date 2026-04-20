@@ -365,10 +365,10 @@ app.post('/api/wolf-analysis', async (req, res) => {
         if (parsedPlan && Array.isArray(parsedPlan.transfers)) {
             // Normalize common field-name variants before checking validity
             parsedPlan.transfers = parsedPlan.transfers.map(t => ({
-                out_name: t.out_name || t.out || t.player_out || t.outgoing || t.sell || '',
-                in_name:  t.in_name  || t.in  || t.player_in  || t.incoming || t.buy  || '',
-                sell_price: t.sell_price ?? t.sell ?? t.out_price ?? 0,
-                buy_price:  t.buy_price  ?? t.buy  ?? t.in_price  ?? 0,
+                out_name: t.out_name || t.out || t.player_out || t.outgoing || t.sell || t.transfer_out || t.out_player || t.selling || '',
+                in_name:  t.in_name  || t.in  || t.player_in  || t.incoming || t.buy  || t.transfer_in  || t.in_player  || t.buying  || '',
+                sell_price: t.sell_price ?? t.selling_price ?? t.sell ?? t.out_price ?? t.sold_for ?? 0,
+                buy_price:  t.buy_price  ?? t.purchase_price ?? t.buy  ?? t.in_price  ?? t.cost ?? 0,
             }));
             const before = parsedPlan.transfers.length;
             parsedPlan.transfers = parsedPlan.transfers.filter(t => t.out_name && t.in_name);
@@ -383,23 +383,36 @@ app.post('/api/wolf-analysis', async (req, res) => {
             }
         }
 
-        // Validate: chip + empty transfers is invalid, OR transfers were entirely stripped — retry once
+        // Validate: retry if transfers are missing but other signals confirm they should exist
         const chip = parsedPlan?.chip;
-        const originalHadTransfers = text.includes('"out_name"') || text.includes('"player_out"') || text.includes('"out"');
-        if (((chip === 'wildcard' || chip === 'freehit') || originalHadTransfers) && (!parsedPlan?.transfers || parsedPlan.transfers.length === 0)) {
-            console.warn('[Wolf] Chip with no transfers or all transfers stripped — retrying with correction');
-            const correctionPrompt = `You are the Fantasy Premier Wolf. You previously recommended chip="${chip}" but your transfers array was empty. That is invalid.
+        const hitsButNoTransfers = (parsedPlan?.hits_taken ?? 0) > 0 && (!parsedPlan?.transfers || parsedPlan.transfers.length === 0);
+        const chipButNoTransfers = (chip === 'wildcard' || chip === 'freehit') && (!parsedPlan?.transfers || parsedPlan.transfers.length === 0);
+        const textMentionsTransfers = /→|OUT →|→ IN|\(FWD\).*→|\(MID\).*→|\(DEF\).*→|\(GKP\).*→/.test(text);
+        const strippedAllTransfers = textMentionsTransfers && (!parsedPlan?.transfers || parsedPlan.transfers.length === 0);
+        if (hitsButNoTransfers || chipButNoTransfers || strippedAllTransfers) {
+            const reason = hitsButNoTransfers ? `hits_taken=${parsedPlan.hits_taken} but transfers=[]` : chipButNoTransfers ? `chip=${chip} but transfers=[]` : 'transfers in text but JSON empty';
+            console.warn(`[Wolf] Transfer mismatch (${reason}) — retrying with correction`);
 
-Your task now is ONLY to output the corrected JSON block. Do not repeat the analysis. Just output:
+            // Extract the human-readable plan section from the text to give the correction call something concrete to encode
+            const planSectionMatch = text.match(/##\s*📋\s*THE PLAN([\s\S]*?)(?=##\s*[🔍⚠️📅✅]|---WOLF_PLAN_JSON---|$)/i);
+            const planSectionText = planSectionMatch ? planSectionMatch[1].trim() : '';
+
+            const correctionPrompt = `You are the Fantasy Premier Wolf. Your JSON block had an empty transfers array, but your written plan clearly lists transfers. Your job now is to encode those written transfers into the JSON exactly.
+
+${planSectionText ? `YOUR WRITTEN PLAN (extract the transfers from this):
+${planSectionText}
+
+` : ''}Your task is ONLY to output the corrected JSON block with the transfers from your written plan encoded. Use EXACT web_name values. Output nothing except the JSON between the markers.
 
 ---WOLF_PLAN_JSON---
-{"transfers":[/* your transfers here */],"chip":"${chip}","captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":0,"bank_after":0.0,"starting_xi":["NAME_1","NAME_2","NAME_3","NAME_4","NAME_5","NAME_6","NAME_7","NAME_8","NAME_9","NAME_10","NAME_11"],"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
+{"transfers":[{"out_name":"EXACT_WEB_NAME","in_name":"EXACT_WEB_NAME","sell_price":0.0,"buy_price":0.0}],"chip":${JSON.stringify(chip)},"captain":"EXACT_WEB_NAME","vice_captain":"EXACT_WEB_NAME","hits_taken":${parsedPlan?.hits_taken ?? 0},"bank_after":0.0,"starting_xi":["NAME_1","NAME_2","NAME_3","NAME_4","NAME_5","NAME_6","NAME_7","NAME_8","NAME_9","NAME_10","NAME_11"],"bench_order":["BENCH_1","BENCH_2","BENCH_3"]}
 ---END_WOLF_PLAN---
 
-Here is the squad and buy targets from the original analysis:
-${prompt.slice(prompt.indexOf('**CURRENT SQUAD'), prompt.indexOf('**MANDATORY RULES') > -1 ? prompt.indexOf('**MANDATORY RULES') : prompt.length)}
+Squad web_names for reference (use these exactly):
+${JSON.stringify(picksData.picks.map(p => { const pl = bootstrapData.elements.find(e => e.id === p.element); return pl?.web_name; }).filter(Boolean))}
 
-Rules: position-for-position only. Use EXACT web_names. For ${chip}, you MUST include transfers — pick the worst players in the squad and replace with the best available targets within budget.`;
+Buy targets for reference:
+${JSON.stringify(bootstrapData.elements.filter(p => !new Set(picksData.picks.map(q => q.element)).has(p.id) && p.status !== 'u' && p.status !== 'i').sort((a,b) => parseFloat(b.ep_next)-parseFloat(a.ep_next)).slice(0,40).map(p => p.web_name))}`;
             const retryRes = await callAI(AI_PROVIDER, GEMINI_API_KEY, ANTHROPIC_API_KEY, correctionPrompt);
             if (retryRes) {
                 const retryPlan = parseWolfPlan(retryRes);
@@ -431,13 +444,17 @@ Rules: position-for-position only. Use EXACT web_names. For ${chip}, you MUST in
                 if (inP) recentBuyIds.add(inP.id);
             }
             const droppableStatuses = new Set(['i', 's']); // injured, suspended
+            const nextGwId = (picksData.entry_history?.event ?? 0) + 1;
+            const teamsWithFixture = new Set((fixtures || []).filter(f => f.event === nextGwId).flatMap(f => [f.team_h, f.team_a]));
             const violations = [];
             for (const tr of planAfterChipCheck.transfers) {
                 const outP = bootstrapData.elements.find(e => e.web_name === tr.out_name);
                 if (!outP) continue;
                 if (!recentBuyIds.has(outP.id)) continue;
                 const chancePlaying = outP.chance_of_playing_next_round;
-                const isFlagged = droppableStatuses.has(outP.status) || (chancePlaying != null && chancePlaying <= 25);
+                const isBlanking = !teamsWithFixture.has(outP.team);
+                // Allow drop if: injured/suspended, ≤25% chance, or team has no fixture (blank GW)
+                const isFlagged = droppableStatuses.has(outP.status) || (chancePlaying != null && chancePlaying <= 25) || isBlanking;
                 if (!isFlagged) violations.push({ name: outP.web_name, status: outP.status, chance: chancePlaying });
             }
             if (violations.length > 0) {
@@ -473,7 +490,8 @@ ${prompt.slice(prompt.indexOf('**CURRENT SQUAD'), prompt.indexOf('**MANDATORY RU
                             const chancePlaying = outP.chance_of_playing_next_round;
                             return !(droppableStatuses.has(outP.status) || (chancePlaying != null && chancePlaying <= 25));
                         });
-                        if (!stillViolating) {
+                        // Only graft if correction has transfers AND no longer violates — never overwrite good transfers with empty
+                        if (!stillViolating && retryPlan.transfers.length > 0) {
                             const origJsonStart = text.indexOf('---WOLF_PLAN_JSON---');
                             const origJsonEnd = text.indexOf('---END_WOLF_PLAN---');
                             const retryJsonStart = retryRes.indexOf('---WOLF_PLAN_JSON---');
@@ -482,7 +500,7 @@ ${prompt.slice(prompt.indexOf('**CURRENT SQUAD'), prompt.indexOf('**MANDATORY RU
                                 text = text.slice(0, origJsonStart) + retryRes.slice(retryJsonStart, retryJsonEnd + '---END_WOLF_PLAN---'.length);
                             }
                         } else {
-                            console.warn('[Wolf] Retry still violated under-review rule — keeping original but logging');
+                            console.warn('[Wolf] Under-review correction skipped — still violating or produced empty transfers, keeping current plan');
                         }
                     }
                 }
@@ -2041,7 +2059,10 @@ Bullet the key factors that drove this recommendation (keep to 4–6 bullets):
 
 ## 📋 THE PLAN
 State the exact plan clearly:
-- **Transfers**: list ONLY players genuinely being swapped — "[OUT] (£X.Xm) → [IN] (£X.Xm)". Do NOT list players staying in the squad. Do NOT write "PlayerX → PlayerX". If no transfers, write exactly: "No transfers". Do NOT write "[]", "None", "N/A", or any other variant.
+- **Transfers**: list ONLY players genuinely being swapped. Each transfer on its own line, formatted exactly as:
+  - [OUT] (£X.Xm) → [IN] (£X.Xm)
+  - [OUT] (£X.Xm) → [IN] (£X.Xm)
+  Do NOT put multiple transfers on the same line. Do NOT comma-separate them. Do NOT list players staying in the squad. Do NOT write "PlayerX → PlayerX". If no transfers, write exactly: "No transfers". Do NOT write "[]", "None", "N/A", or any other variant.
 - **Hits taken**: X (-Xpts)
 - **Bank after**: £X.Xm
 - **Chip**: [chip name] OR None

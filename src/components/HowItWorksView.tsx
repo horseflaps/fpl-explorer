@@ -98,8 +98,8 @@ const HowItWorksView: React.FC = () => {
 
                 {/* ── SECTION 2: Getting connected ── */}
                 <Section
-                    title="Getting Connected"
-                    subtitle="The platform is most powerful when linked to your FPL account. Here's how the connection works."
+                    title="Getting Linked"
+                    subtitle="The platform is most powerful when linked to your FPL account. Here's how linking works."
                 >
                     <div className="bg-slate-900/40 border border-white/10 rounded-3xl p-8 md:p-10">
                         <Step number={1} title="Install the Chrome Extension" icon={<Chrome size={18} />} color="#00ff87">
@@ -131,7 +131,7 @@ const HowItWorksView: React.FC = () => {
                                 <Search className="text-fpl-green w-5 h-5" /> Loading a Team
                             </h3>
                             <ul className="space-y-3 text-sm text-gray-400">
-                                <li className="flex items-start gap-2"><ArrowRight className="text-fpl-green w-4 h-4 mt-0.5 shrink-0" /><span><strong className="text-white">Auto-load:</strong> If you're connected, your team appears instantly when you open the tab.</span></li>
+                                <li className="flex items-start gap-2"><ArrowRight className="text-fpl-green w-4 h-4 mt-0.5 shrink-0" /><span><strong className="text-white">Auto-load:</strong> If you're linked, your team appears instantly when you open the tab.</span></li>
                                 <li className="flex items-start gap-2"><ArrowRight className="text-fpl-green w-4 h-4 mt-0.5 shrink-0" /><span><strong className="text-white">Manager name:</strong> Search any FPL manager by their display name.</span></li>
                                 <li className="flex items-start gap-2"><ArrowRight className="text-fpl-green w-4 h-4 mt-0.5 shrink-0" /><span><strong className="text-white">Team ID:</strong> Enter a numeric FPL entry ID directly.</span></li>
                                 <li className="flex items-start gap-2"><ArrowRight className="text-fpl-green w-4 h-4 mt-0.5 shrink-0" /><span><strong className="text-white">League:</strong> Browse all managers in any mini-league by ID.</span></li>
@@ -156,10 +156,10 @@ const HowItWorksView: React.FC = () => {
                         <div className="bg-[#00ff87]/5 border border-[#00ff87]/30 rounded-2xl p-6 space-y-3">
                             <div className="flex items-center gap-2">
                                 <Wifi className="text-[#00ff87] w-4 h-4 shrink-0" />
-                                <p className="text-white font-bold text-sm uppercase tracking-wide">Connected via extension</p>
+                                <p className="text-white font-bold text-sm uppercase tracking-wide">Linked via extension</p>
                             </div>
                             <p className="text-gray-400 text-sm leading-relaxed">
-                                When you're connected through the Chrome extension, the Wolf reads your live FPL session directly. Your current squad — including any transfers you've made since the last deadline, your bank balance, free transfers, and chip status — is loaded automatically every time you open the Analyse tab. There's nothing to search for and nothing to update manually.
+                                When you're linked through the Chrome extension, the Wolf reads your live FPL session directly. Your current squad — including any transfers you've made since the last deadline, your bank balance, free transfers, and chip status — is loaded automatically every time you open the Analyse tab. There's nothing to search for and nothing to update manually.
                             </p>
                             <p className="text-gray-500 text-xs leading-relaxed border-t border-white/5 pt-3">
                                 <span className="text-[#00ff87] font-semibold">Your password is never touched.</span> The extension reads your active browser session — the same token that already has you logged in to FPL — and passes it securely to the Wolf. Your login credentials are never seen, stored, or transmitted by this platform, and the extension cannot access any website other than fantasy.premierleague.com.
@@ -168,7 +168,7 @@ const HowItWorksView: React.FC = () => {
                         <div className="bg-slate-800/40 border border-white/10 rounded-2xl p-6 space-y-3">
                             <div className="flex items-center gap-2">
                                 <Search className="text-[#02efff] w-4 h-4 shrink-0" />
-                                <p className="text-white font-bold text-sm uppercase tracking-wide">Not connected — searching manually</p>
+                                <p className="text-white font-bold text-sm uppercase tracking-wide">Not linked — searching manually</p>
                             </div>
                             <p className="text-gray-400 text-sm leading-relaxed">
                                 If you're not using the extension, you can still analyse your team by searching for it by name, ID, or league. However, <span className="text-white font-semibold">the squad shown will reflect your team as it stood at the last gameweek deadline</span> — not any transfers you've made in the current window.
