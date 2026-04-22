@@ -121,6 +121,10 @@ function initDb() {
 
         // Migration: FPL connection timestamp
         db.run("ALTER TABLE users ADD COLUMN fpl_connected_at TEXT", () => {});
+
+        // Migration: Player flags (keep/drop preferences for Wolf analysis)
+        db.run("ALTER TABLE users ADD COLUMN keep_players TEXT DEFAULT '[]'", () => {});
+        db.run("ALTER TABLE users ADD COLUMN drop_players TEXT DEFAULT '[]'", () => {});
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
 
@@ -217,6 +221,54 @@ function initDb() {
             // Always keep prices in sync with the canonical seed values
             db.run('UPDATE tiers SET price_gbp = 3.99 WHERE id = 2');
             db.run('UPDATE tiers SET price_gbp = 7.99 WHERE id = 3');
+        });
+
+        // Player Predictions Table — pre-GW forecasts
+        db.run(`CREATE TABLE IF NOT EXISTS player_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            player_name TEXT,
+            team_id INTEGER,
+            position INTEGER,
+            gameweek INTEGER NOT NULL,
+            predicted_points REAL,
+            ep_next REAL,
+            form REAL,
+            price INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(player_id, gameweek)
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating player_predictions table:', err.message);
+            else console.log('[DB] Player predictions table ready.');
+        });
+
+        // Prediction Accuracy Table — post-GW actuals vs predictions
+        db.run(`CREATE TABLE IF NOT EXISTS prediction_accuracy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            player_name TEXT,
+            position INTEGER,
+            price INTEGER,
+            gameweek INTEGER NOT NULL,
+            predicted_points REAL,
+            actual_points REAL,
+            error REAL,
+            abs_error REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(player_id, gameweek)
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating prediction_accuracy table:', err.message);
+            else console.log('[DB] Prediction accuracy table ready.');
+        });
+
+        // Wolf Insights Table — stores generated digests and meta-learning summaries
+        db.run(`CREATE TABLE IF NOT EXISTS wolf_insights (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating wolf_insights table:', err.message);
+            else console.log('[DB] Wolf insights table ready.');
         });
 
         // News Articles Table

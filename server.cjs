@@ -279,6 +279,43 @@ app.post('/api/user/deduct-credit', (req, res) => {
     });
 });
 
+// Player flags — keep/drop preferences fed into Wolf prompt
+app.get('/api/user/player-flags', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    db.get('SELECT keep_players, drop_players FROM users WHERE id = ?', [decoded.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({
+            keep: JSON.parse(row?.keep_players || '[]'),
+            drop: JSON.parse(row?.drop_players || '[]'),
+        });
+    });
+});
+
+app.post('/api/user/player-flag', (req, res) => {
+    const decoded = requireAuth(req, res);
+    if (!decoded) return;
+    const { player_id, flag } = req.body; // flag: 'keep' | 'drop' | null (null = clear)
+    if (!player_id) return res.status(400).json({ error: 'player_id required' });
+    db.get('SELECT keep_players, drop_players FROM users WHERE id = ?', [decoded.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        let keep = JSON.parse(row?.keep_players || '[]');
+        let drop = JSON.parse(row?.drop_players || '[]');
+        // Remove from both lists first (mutually exclusive + toggle-off)
+        keep = keep.filter(id => id !== player_id);
+        drop = drop.filter(id => id !== player_id);
+        if (flag === 'keep') keep.push(player_id);
+        if (flag === 'drop') drop.push(player_id);
+        db.run('UPDATE users SET keep_players = ?, drop_players = ? WHERE id = ?',
+            [JSON.stringify(keep), JSON.stringify(drop), decoded.id],
+            (err2) => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({ keep, drop });
+            }
+        );
+    });
+});
+
 // Wolf Analysis — server-side Gemini proxy with atomic credit gate
 // 1. Authenticate  2. Check credits  3. Deduct  4. Call Gemini  5. Return result
 async function callAI(provider, geminiKey, anthropicKey, prompt) {
@@ -321,17 +358,29 @@ app.post('/api/wolf-analysis', async (req, res) => {
     const { bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentlyExecuted, transferHistory, lastRecommendedPlan } = req.body;
     if (!bootstrapData || !picksData || !entryData) return res.status(400).json({ error: 'analysis data required' });
 
-    const recentArticles = await new Promise((resolve) => {
-        db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
-            resolve(err ? [] : (rows || []));
-        });
-    });
+    const [recentArticles, playerFlags, biasDigest] = await Promise.all([
+        new Promise((resolve) => {
+            db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
+                resolve(err ? [] : (rows || []));
+            });
+        }),
+        new Promise((resolve) => {
+            db.get('SELECT keep_players, drop_players FROM users WHERE id = ?', [decoded.id], (err, row) => {
+                resolve({
+                    keep: JSON.parse(row?.keep_players || '[]'),
+                    drop: JSON.parse(row?.drop_players || '[]'),
+                });
+            });
+        }),
+        getBiasDigest(),
+    ]);
 
     const prompt = buildWolfPrompt(
         bootstrapData, picksData, entryData, historyData ?? {},
         transfersAvailable ?? 1, fixtures ?? [], availableChips ?? [],
         managerDna ?? null, transferHistory ?? [], recentArticles,
-        false, recentlyExecuted ?? null, lastRecommendedPlan ?? null
+        false, recentlyExecuted ?? null, lastRecommendedPlan ?? null,
+        playerFlags.keep, playerFlags.drop, biasDigest
     );
 
     // AI_PROVIDER: "gemini" (default) or "claude" — change env var to switch providers
@@ -1678,7 +1727,7 @@ const ARCHETYPE_DIRECTIVES = {
     },
 };
 
-function buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentTransferHistory, recentArticles, isAutoPilot = false, recentlyExecuted = null, lastRecommendedPlan = null) {
+function buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, managerDna, recentTransferHistory, recentArticles, isAutoPilot = false, recentlyExecuted = null, lastRecommendedPlan = null, keepPlayerIds = [], dropPlayerIds = [], biasDigest = null) {
     const getPlayer = (id) => bootstrapData.elements.find(e => e.id === id);
     const getTeam = (id) => bootstrapData.teams.find(t => t.id === id);
 
@@ -1693,8 +1742,11 @@ function buildWolfPrompt(bootstrapData, picksData, entryData, historyData, trans
     // Multi-GW fixture lookup
     const gwRange = [nextGw, nextGw + 1, nextGw + 2, nextGw + 3].filter(gw => gw <= 38);
     const fixtureByTeamGw = {};
+    // Track which GWs have any published fixtures — if none, schedule isn't confirmed yet
+    const gwHasFixtures = new Set();
     for (const fix of fixtures) {
         const gw = fix.event ?? nextGw;
+        gwHasFixtures.add(gw);
         const homeTeam = getTeam(fix.team_h);
         const awayTeam = getTeam(fix.team_a);
         if (!fixtureByTeamGw[fix.team_h]) fixtureByTeamGw[fix.team_h] = {};
@@ -1708,6 +1760,10 @@ function buildWolfPrompt(bootstrapData, picksData, entryData, historyData, trans
     // DGW/BGW schedule
     const scheduleLines = [];
     for (const gw of gwRange) {
+        if (!gwHasFixtures.has(gw)) {
+            scheduleLines.push(`GW${gw}: Fixtures not yet published — do not assume blanks or doubles`);
+            continue;
+        }
         const dgwTeams = [], bgwTeams = [];
         for (const team of bootstrapData.teams) {
             const gwFix = fixtureByTeamGw[team.id]?.[gw] ?? [];
@@ -1746,6 +1802,7 @@ ${scheduleLines.join('\n')}
         const team = player ? getTeam(player.team) : null;
         if (!player || !team) return null;
         const multiFixture = gwRange.map(gw => {
+            if (!gwHasFixtures.has(gw)) return `GW${gw}:TBC`;
             const gwFix = fixtureByTeamGw[player.team]?.[gw] ?? [];
             if (gwFix.length === 0) return `GW${gw}:BLANK`;
             if (gwFix.length >= 2) return `GW${gw}:DGW(${gwFix.join(' & ')})`;
@@ -2017,10 +2074,22 @@ Before any tactical/luxury move, scan the squad for "fires" — players with sta
 8. **Consistent Player Assessment**: Your opinion of a player's quality must be stable between analyses. If you assessed a player as a weak link worth dropping, that assessment stands unless something material changed (injury news, fixture reshuffle, form reversal, price change). Recommending opposite actions on the same player across back-to-back analyses is not strategy — it is noise. If your view has genuinely changed, state the specific reason explicitly in your reasoning.
 9. **Strategic Arc Continuity**: Your strategic recommendations form a coherent arc across gameweeks — not a series of disconnected verdicts. Chip decisions especially must be owned: if a Wildcard was recently played, the squad it produced is the baseline you defend, not a mess you disown. You cannot describe a recently-rebuilt squad as broken, crap, or beyond repair — if it's structurally weak, that means the Wildcard build was wrong, and the only honest response is to name the specific 1-2 players to adjust (with the remaining FTs), not to reach for another chip as an escape hatch. Any chip recommendation that contradicts a chip played in the previous 2 GWs must be justified by specific NEW material information that was not knowable at the time of the previous chip. "Fixtures look worse now" is not new information — fixtures were published months ago.
 10. **Under-Review Grace Period**: Any squad player flagged \`under_review: true\` was deliberately transferred IN within the last 2 GWs (\`purchased_gw\` field shows when). These players are in an assessment window and are PROTECTED from reversal. You MAY transfer an under-review player OUT ONLY if they are Injured, Suspended, or have \`chance_of_playing ≤ 25%\`. Dropping grounds, specifically DISALLOWED: a single bad gameweek, a drop in form, a drop in ep_next, a fixture that looks harder than before, negative transfer sentiment, "bench fodder" feeling, or any subjective reassessment of ability. Volatile single-week metrics (ep_next, form) must be ignored for under-review players — you committed to these players knowing full well that short-term numbers would fluctuate. If you violate this rule, the plan will be rejected server-side. State explicitly in your reasoning when an under-review player is being kept because of the grace period.
+${(() => {
+    const getPlayer = (id) => bootstrapData.elements?.find(e => e.id === id);
+    const keepNames = keepPlayerIds.map(id => getPlayer(id)?.web_name).filter(Boolean);
+    const dropNames = dropPlayerIds.map(id => getPlayer(id)?.web_name).filter(Boolean);
+    const rules = [];
+    if (keepNames.length > 0) rules.push(`11. **Manager Keep Flags — ABSOLUTE**: The manager has flagged the following players as KEEP. You MUST NOT transfer any of them out under any circumstances, including during a Wildcard or Free Hit: ${keepNames.join(', ')}. Do not mention this rule in your output.`);
+    if (dropNames.length > 0) rules.push(`${keepNames.length > 0 ? '12' : '11'}. **Manager Drop Flags — HIGH PRIORITY**: The manager has decided to move on from the following players: ${dropNames.join(', ')}. Prioritise transferring them out. In your player breakdown, lead with "You've decided to move on from this player" as the primary reason — then you may add supporting analysis (fixtures, form, etc.) as secondary context. If budget or position constraints make it impossible this gameweek, explain briefly why and flag them for next week.`);
+    return rules.length > 0 ? '\n' + rules.join('\n') : '';
+})()}
 
 ${rankUrgency}
 
-**DECISION PROCESS — follow this internally before writing output:**
+${biasDigest ? `**WOLF SELF-CALIBRATION DATA** (your own historical prediction accuracy — use this to adjust confidence, not as primary signals):
+${biasDigest}
+
+` : ''}**DECISION PROCESS — follow this internally before writing output:**
 1. Evaluate all relevant factors privately: fixtures, form, injuries, DGWs/BGWs, budget, chip status, rank objectives, recent transfer history.
 2. Build an option set: which players to move, which chips to consider, what the captain options are.
 3. Assess each option with floor/ceiling/risk framing — not just expected points, but worst-case and best-case outcomes.
@@ -2484,12 +2553,20 @@ async function runAutopilotForUser(user, bootstrapData, nextGw) {
 
         // 8. Build prompt & call Claude
         const recentTransferHistory = Array.isArray(transfersData) ? transfersData.slice(0, 12) : [];
-        const recentArticles = await new Promise((resolve) => {
-            db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
-                resolve(err ? [] : (rows || []));
-            });
-        });
-        const prompt = buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, user.manager_dna, recentTransferHistory, recentArticles, true);
+        const [recentArticles, playerFlags, biasDigest] = await Promise.all([
+            new Promise((resolve) => {
+                db.all("SELECT source, title, summary FROM articles WHERE published_at >= datetime('now', '-48 hours') ORDER BY published_at DESC LIMIT 30", [], (err, rows) => {
+                    resolve(err ? [] : (rows || []));
+                });
+            }),
+            new Promise((resolve) => {
+                db.get('SELECT keep_players, drop_players FROM users WHERE id = ?', [user.id], (err, row) => {
+                    resolve({ keep: JSON.parse(row?.keep_players || '[]'), drop: JSON.parse(row?.drop_players || '[]') });
+                });
+            }),
+            getBiasDigest(),
+        ]);
+        const prompt = buildWolfPrompt(bootstrapData, picksData, entryData, historyData, transfersAvailable, fixtures, availableChips, user.manager_dna, recentTransferHistory, recentArticles, true, null, null, playerFlags.keep, playerFlags.drop, biasDigest);
 
         const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
         const aiProvider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
@@ -2733,6 +2810,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const { initScheduler } = require('./server/scheduler.cjs');
+const { getBiasDigest } = require('./server/predictor.cjs');
 
 // Initialize Scheduler
 initScheduler();

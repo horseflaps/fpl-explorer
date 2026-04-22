@@ -111,6 +111,8 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     const [captainError, setCaptainError] = useState<string | null>(null);
     const [captainSuccess, setCaptainSuccess] = useState<string | null>(null);
     const [captainModalPick, setCaptainModalPick] = useState<Pick | null>(null);
+    const [keepPlayerIds, setKeepPlayerIds] = useState<number[]>([]);
+    const [dropPlayerIds, setDropPlayerIds] = useState<number[]>([]);
 
     const handleNameSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -538,8 +540,12 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             fetchLiveEvent(gw),
                             fetchEntryTransfers(entryId)
                         ]);
+                        // For the current in-progress GW use confirmed public picks for the player list —
+                        // live picks include pending transfers that don't take effect until next GW.
+                        // For future GWs, live picks correctly show the squad after pending transfers.
+                        const squadSource = (gw === currentGwId && publicPicks) ? publicPicks : livePicks;
                         return {
-                            picks: { ...livePicks, entry_history: (publicPicks as any)?.entry_history ?? null },
+                            picks: { ...squadSource, entry_history: (publicPicks as any)?.entry_history ?? null },
                             live,
                             trans,
                             isReconstructed: false
@@ -690,6 +696,15 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
     const getPlayer = (id: number) => data.elements.find(e => e.id === id);
     const getTeam = (id: number) => data.teams.find(t => t.id === id);
+
+    // Load player flags on mount (own linked team only) — must be above any early returns
+    useEffect(() => {
+        if (!isOwnTeam || !token) return;
+        fetch('/api/user/player-flags', { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) { setKeepPlayerIds(d.keep); setDropPlayerIds(d.drop); } })
+            .catch(() => {});
+    }, [isOwnTeam, token]);
 
     // Require login to view any team
     if (!user) {
@@ -1584,6 +1599,20 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
         }
     };
 
+    const handlePlayerFlag = async (playerId: number, flag: 'keep' | 'drop' | null) => {
+        if (!token) return;
+        // Optimistic update
+        setKeepPlayerIds(prev => flag === 'keep' ? [...prev.filter(id => id !== playerId), playerId] : prev.filter(id => id !== playerId));
+        setDropPlayerIds(prev => flag === 'drop' ? [...prev.filter(id => id !== playerId), playerId] : prev.filter(id => id !== playerId));
+        await fetch('/api/user/player-flag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ player_id: playerId, flag }),
+        }).then(r => r.ok ? r.json() : null)
+          .then(data => { if (data) { setKeepPlayerIds(data.keep); setDropPlayerIds(data.drop); } })
+          .catch(() => {});
+    };
+
     const handleSetCaptain = async (pick: Pick, role: 'captain' | 'vice_captain') => {
         if (!picksData) return;
 
@@ -1981,6 +2010,13 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                 V
                             </div>
                         )}
+                        {/* Keep / Drop flag badges */}
+                        {keepPlayerIds.includes(pick.element) && (
+                            <div className="absolute -top-2 -right-3 text-lg z-30" title="Keep — Wolf will not transfer out">🔒</div>
+                        )}
+                        {dropPlayerIds.includes(pick.element) && (
+                            <div className="absolute -top-2 -right-3 text-lg z-30" title="Drop — Wolf will prioritise transferring out">🚫</div>
+                        )}
                     </div>
 
                     {/* Info Card - Styled to match reference exactly */}
@@ -2066,23 +2102,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
 
         return (
             <div className="max-w-4xl mx-auto px-4 md:px-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {/* View Toggle (List View) */}
-                <div className="flex justify-end mb-4">
-                    <div className="flex bg-[#37003c]/50 backdrop-blur-sm rounded-lg p-1 gap-1 border border-white/10">
-                        <button
-                            onClick={() => setView('pitch')}
-                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all text-white/40 hover:text-white"
-                        >
-                            Pitch View
-                        </button>
-                        <button
-                            onClick={() => setView('list')}
-                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all bg-[#37003c] text-white shadow-lg"
-                        >
-                            List View
-                        </button>
-                    </div>
-                </div>
 
                 {/* Table Header */}
                 {isEditingTeam ? (
@@ -2567,33 +2586,64 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
     return (
         <div className="relative space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 pt-4 select-none">
 
-            {/* Mobile Captain/VC modal */}
+            {/* Mobile Captain/VC/Flag modal */}
             {captainModalPick && (() => {
                 const modalPlayer = getPlayer(captainModalPick.element);
+                const isKept = keepPlayerIds.includes(captainModalPick.element);
+                const isDropped = dropPlayerIds.includes(captainModalPick.element);
                 return (
                     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-4" onClick={() => setCaptainModalPick(null)}>
                         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
                         <div className="relative bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in slide-in-from-bottom-4 duration-300" onClick={e => e.stopPropagation()}>
-                            <p className="text-white/50 text-xs font-bold uppercase tracking-widest mb-1">Set Role</p>
+                            <p className="text-white/50 text-xs font-bold uppercase tracking-widest mb-1">Player Options</p>
                             <p className="text-white font-black text-lg mb-5">{modalPlayer?.web_name}</p>
-                            <div className="flex gap-3">
+
+                            {/* Captain / VC row */}
+                            <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Captaincy</p>
+                            <div className="flex gap-3 mb-4">
                                 <button
                                     onClick={() => { handleSetCaptain(captainModalPick, 'captain'); setCaptainModalPick(null); }}
-                                    className={`flex-1 py-4 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                    className={`flex-1 py-3 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
                                         ${captainModalPick.is_captain ? 'bg-[#00ff87] text-black border-[#00ff87]' : 'bg-slate-800 text-white border-white/20 hover:border-[#00ff87] hover:text-[#00ff87]'}`}
                                 >
-                                    <span className="text-2xl font-black">C</span>
+                                    <span className="text-xl font-black">C</span>
                                     <span className="text-[10px] font-bold tracking-wider">CAPTAIN</span>
                                 </button>
                                 <button
                                     onClick={() => { handleSetCaptain(captainModalPick, 'vice_captain'); setCaptainModalPick(null); }}
-                                    className={`flex-1 py-4 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                    className={`flex-1 py-3 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
                                         ${captainModalPick.is_vice_captain ? 'bg-[#02efff] text-black border-[#02efff]' : 'bg-slate-800 text-white border-white/20 hover:border-[#02efff] hover:text-[#02efff]'}`}
                                 >
-                                    <span className="text-2xl font-black">V</span>
+                                    <span className="text-xl font-black">V</span>
                                     <span className="text-[10px] font-bold tracking-wider">VICE CAPTAIN</span>
                                 </button>
                             </div>
+
+                            {/* Keep / Drop row — own linked team only */}
+                            {isOwnTeam && (
+                                <>
+                                    <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mb-2">Wolf Instructions</p>
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => { handlePlayerFlag(captainModalPick.element, isKept ? null : 'keep'); setCaptainModalPick(null); }}
+                                            className={`flex-1 py-3 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                                ${isKept ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-slate-800 text-white border-white/20 hover:border-emerald-500 hover:text-emerald-400'}`}
+                                        >
+                                            <span className="text-lg">🔒</span>
+                                            <span className="text-[10px] font-bold tracking-wider">{isKept ? 'KEEP (ON)' : 'KEEP'}</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { handlePlayerFlag(captainModalPick.element, isDropped ? null : 'drop'); setCaptainModalPick(null); }}
+                                            className={`flex-1 py-3 rounded-xl font-black text-sm flex flex-col items-center gap-1 border-2 transition-colors
+                                                ${isDropped ? 'bg-red-500 text-white border-red-500' : 'bg-slate-800 text-white border-white/20 hover:border-red-500 hover:text-red-400'}`}
+                                        >
+                                            <span className="text-lg">🚫</span>
+                                            <span className="text-[10px] font-bold tracking-wider">{isDropped ? 'DROP (ON)' : 'DROP'}</span>
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+
                             <button onClick={() => setCaptainModalPick(null)} className="mt-4 w-full py-2 text-white/40 text-sm hover:text-white transition-colors">Cancel</button>
                         </div>
                     </div>
@@ -2631,89 +2681,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                 )}
             </div>
 
-            {/* Gameweek Nav Row */}
-            <div className="max-w-4xl mx-auto flex items-center justify-center gap-6 relative">
-                {/* Search Different Team Button (Right Side) */}
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
-                    <button
-                        onClick={handleReset}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white text-xs font-bold transition-all border border-slate-700"
-                    >
-                        <RefreshCw size={14} />
-                        <span className="hidden md:inline">Search Different Team</span>
-                    </button>
-                </div>
-                {/* Save Team Button (Top Left) */}
-                {!isEditingTeam && entryData && !savedTeamIds.includes(entryData.id) && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 group">
-                        <button
-                            onClick={user ? handleSaveTeam : undefined}
-                            disabled={isSaving || !user}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg 
-                                ${user
-                                    ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
-                                    : 'bg-slate-800 text-gray-500 cursor-not-allowed border border-slate-700'
-                                }`}
-                        >
-                            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                            <span className="hidden md:inline">Save to My Teams</span>
-                        </button>
-
-                        {/* Tooltip for non-logged in users */}
-                        {!user && (
-                            <div className="absolute top-full left-0 mt-2 w-48 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[10px] text-white font-medium text-center">
-                                Log in to save to My Teams
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {!isEditingTeam && (
-                    <button
-                        onClick={handlePrevGw}
-                        disabled={loading || selectedGw <= 1}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
-                    >
-                        <ChevronLeft size={16} />
-                    </button>
-                )}
-                <div className="flex flex-col items-center">
-                    <h3 className="text-2xl font-black text-white italic tracking-tight">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
-                    {isReconstructed && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <span className="bg-[#02efff] text-[#37003c] text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Projected Lineup</span>
-                            <div className="group relative">
-                                <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
-                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
-                                    Official data for GW{selectedGw} isn't available until the deadline. Using GW{selectedGw - 1} data as a base.
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {isCachedLineup && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <span className="bg-[#00ff87] text-[#37003c] text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Saved Lineup{cachedLineupGw ? ` · GW${cachedLineupGw}` : ''}</span>
-                            <div className="group relative">
-                                <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
-                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
-                                    Last saved lineup from when this team was linked{cachedLineupDate ? ` · ${new Date(cachedLineupDate).toLocaleDateString()}` : ''}.
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-                {!isEditingTeam && (
-                    <button
-                        onClick={handleNextGw}
-                        disabled={loading || selectedGw >= (data.events.find(e => e.is_current)?.id || 0) + 1}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
-                    >
-                        <ChevronRight size={16} />
-                    </button>
-                )}
-            </div>
 
 
 
@@ -2915,7 +2882,104 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                     </div>
                 </div>
             )}
-            <div className={`max-w-4xl mx-auto px-4 md:px-0 transition-all duration-500 ${isEditingTeam ? 'sticky bottom-6 z-50' : ''} ${(user?.credits ?? 0) < 1 ? 'opacity-40 pointer-events-none' : ''}`}>
+            {/* Gameweek Nav Row */}
+            <div className="max-w-4xl mx-auto flex items-center justify-center gap-6 relative px-4 md:px-0">
+                {/* Search Different Team Button (Right Side) */}
+                <div className="absolute right-4 md:right-0 top-1/2 -translate-y-1/2 z-10">
+                    <button
+                        onClick={handleReset}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-gray-300 hover:text-white text-xs font-bold transition-all border border-slate-700"
+                    >
+                        <RefreshCw size={14} />
+                        <span className="hidden md:inline">Search Different Team</span>
+                    </button>
+                </div>
+                {/* Left Side: View Toggle + optional Save Team */}
+                <div className="absolute left-4 md:left-0 top-1/2 -translate-y-1/2 flex flex-col items-start gap-1.5">
+                    <div className="flex bg-[#37003c]/50 backdrop-blur-sm rounded-lg p-1 gap-1 border border-white/10">
+                        <button
+                            onClick={() => setView('pitch')}
+                            className={`px-3 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'pitch' ? 'bg-[#37003c] text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
+                        >
+                            Pitch View
+                        </button>
+                        <button
+                            onClick={() => setView('list')}
+                            className={`px-3 py-1.5 text-[10px] font-black uppercase rounded transition-all ${view === 'list' ? 'bg-[#37003c] text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
+                        >
+                            List View
+                        </button>
+                    </div>
+                    {!isEditingTeam && entryData && !savedTeamIds.includes(entryData.id) && (
+                        <div className="group">
+                            <button
+                                onClick={user ? handleSaveTeam : undefined}
+                                disabled={isSaving || !user}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-lg
+                                    ${user
+                                        ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+                                        : 'bg-slate-800 text-gray-500 cursor-not-allowed border border-slate-700'
+                                    }`}
+                            >
+                                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                <span className="hidden md:inline">Save to My Teams</span>
+                            </button>
+                            {!user && (
+                                <div className="absolute top-full left-0 mt-2 w-48 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[10px] text-white font-medium text-center">
+                                    Log in to save to My Teams
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+                {!isEditingTeam && (
+                    <button
+                        onClick={handlePrevGw}
+                        disabled={loading || selectedGw <= 1}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
+                    >
+                        <ChevronLeft size={16} />
+                    </button>
+                )}
+                <div className="flex flex-col items-center">
+                    <h3 className="text-2xl font-black text-white italic tracking-tight">{loading ? 'Loading...' : `Gameweek ${selectedGw}`}</h3>
+                    {isReconstructed && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                            <span className="bg-[#02efff] text-[#37003c] text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Projected Lineup</span>
+                            <div className="group relative">
+                                <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
+                                    Official data for GW{selectedGw} isn't available until the deadline. Using GW{selectedGw - 1} data as a base.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {isCachedLineup && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                            <span className="bg-[#00ff87] text-[#37003c] text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Saved Lineup{cachedLineupGw ? ` · GW${cachedLineupGw}` : ''}</span>
+                            <div className="group relative">
+                                <HelpCircle size={10} className="text-white/40 cursor-help hover:text-white transition-colors" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-900 border border-white/20 rounded-md shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 z-50 text-[9px] leading-tight text-white/90 font-medium text-center">
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-white/20 rotate-45"></div>
+                                    Last saved lineup from when this team was linked{cachedLineupDate ? ` · ${new Date(cachedLineupDate).toLocaleDateString()}` : ''}.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+                {!isEditingTeam && (
+                    <button
+                        onClick={handleNextGw}
+                        disabled={loading || selectedGw >= (data.events.find(e => e.is_current)?.id || 0) + 1}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-[#37003c]/50 hover:bg-[#4d0c54] transition-colors text-white disabled:opacity-30 border border-white/10"
+                    >
+                        <ChevronRight size={16} />
+                    </button>
+                )}
+            </div>
+
+            <div className={`max-w-4xl mx-auto px-4 md:px-0 transition-all duration-500 ${isEditingTeam ? 'sticky bottom-6 z-50' : ''}`}>
                 <div className={`
                         w-full relative overflow-hidden rounded-2xl border transition-all shadow-2xl p-4 md:p-6
                         ${isEditingTeam ? 'bg-[#220025] border-[#00ff87]/50' : 'bg-gradient-to-r from-[#37003c] to-[#4d0c54] border-white/10'}
@@ -2946,36 +3010,39 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                             </div>
                         </div>
 
-                        {/* Right: two buttons always visible */}
+                        {/* Right: buttons */}
                         <div className="shrink-0 flex items-center gap-2 md:gap-3">
-                            {/* Button 1: Edit Team toggle */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (isEditingTeam) {
-                                        setIsEditingTeam(false);
-                                        setGhostPlayerIds([]);
-                                        setEditedPicks(null);
-                                        setShowPlayerPicker(false);
-                                    } else {
-                                        if (!picksData || !entryData) return;
-                                        setEditedPicks(JSON.parse(JSON.stringify(picksData)));
-                                        setIsEditingTeam(true);
-                                    }
-                                }}
-                                className={`px-3 py-2.5 md:px-5 md:py-3 rounded-xl font-black text-xs uppercase tracking-wide border transition-all flex items-center gap-1.5
-                                    ${isEditingTeam
-                                        ? 'bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20'
-                                        : 'bg-white/5 border-white/20 text-white hover:bg-white/10'
-                                    }`}
-                            >
-                                {isEditingTeam ? <><X size={13} /> Exit</> : <>Edit Team</>}
-                            </button>
+                            {/* Edit Team — only for unlinked teams (linked teams have live accurate squads) */}
+                            {!isOwnTeam && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isEditingTeam) {
+                                            setIsEditingTeam(false);
+                                            setGhostPlayerIds([]);
+                                            setEditedPicks(null);
+                                            setShowPlayerPicker(false);
+                                        } else {
+                                            if (!picksData || !entryData) return;
+                                            setEditedPicks(JSON.parse(JSON.stringify(picksData)));
+                                            setIsEditingTeam(true);
+                                        }
+                                    }}
+                                    className={`px-3 py-2.5 md:px-5 md:py-3 rounded-xl font-black text-xs uppercase tracking-wide border transition-all flex items-center gap-1.5
+                                        ${isEditingTeam
+                                            ? 'bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20'
+                                            : 'bg-white/5 border-white/20 text-white hover:bg-white/10'
+                                        }`}
+                                >
+                                    {isEditingTeam ? <><X size={13} /> Exit</> : <>Edit Team</>}
+                                </button>
+                            )}
 
                             {/* Button 2: Unleash the Wolf */}
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowWolfConfirm(true); }}
-                                className="px-3 py-2.5 md:px-6 md:py-3 bg-[#00ff87] text-[#37003c] font-black rounded-xl text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 hover:bg-[#02efff] hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.3)]"
+                                disabled={(user?.credits ?? 0) < 1}
+                                className="px-3 py-2.5 md:px-6 md:py-3 bg-[#00ff87] text-[#37003c] font-black rounded-xl text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 hover:bg-[#02efff] hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,255,135,0.3)] disabled:opacity-40 disabled:pointer-events-none"
                             >
                                 <span>🐺</span>
                                 <span className="hidden sm:inline">Unleash Wolf</span>
@@ -3006,23 +3073,6 @@ const PitchView: React.FC<PitchViewProps> = ({ data }) => {
                                     alt="Football Pitch"
                                 />
 
-                                {/* View Toggle (Pitch View) - Absolute Top Right */}
-                                <div className="absolute top-4 right-4 z-50">
-                                    <div className="flex bg-[#37003c]/80 backdrop-blur-md rounded-lg p-1 gap-1 border border-white/10 shadow-xl">
-                                        <button
-                                            onClick={() => setView('pitch')}
-                                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all bg-[#37003c] text-white shadow-lg"
-                                        >
-                                            Pitch View
-                                        </button>
-                                        <button
-                                            onClick={() => setView('list')}
-                                            className="px-4 py-1.5 text-[10px] font-black uppercase rounded transition-all text-white/40 hover:text-white"
-                                        >
-                                            List View
-                                        </button>
-                                    </div>
-                                </div>
 
                                 {/* Captain save toast */}
                                 {(captainSaving || captainSuccess || captainError) && (
