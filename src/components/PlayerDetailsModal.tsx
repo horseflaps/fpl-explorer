@@ -12,9 +12,9 @@ interface PlayerDetailsModalProps {
     onClose: () => void;
 }
 
-const Stat: React.FC<{ label: string; value: string | number; highlight?: boolean }> = ({ label, value, highlight }) => (
-    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-        <div className="text-gray-400 text-xs mb-1 leading-tight">{label}</div>
+const Stat: React.FC<{ label: string; value: string | number; highlight?: boolean; tooltip?: string }> = ({ label, value, highlight, tooltip }) => (
+    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800" title={tooltip}>
+        <div className="text-gray-400 text-xs mb-1 leading-tight cursor-default">{label}</div>
         <div className={`text-lg font-bold ${highlight ? 'text-fpl-green' : 'text-white'}`}>{value}</div>
     </div>
 );
@@ -182,11 +182,11 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                         <Stat label="Total Points" value={player.total_points} highlight />
                                         <Stat label="Points / Game" value={player.points_per_game} />
                                         <Stat label="Form" value={player.form} />
-                                        <Stat label="EP This GW" value={player.ep_this} />
-                                        <Stat label="EP Next GW" value={player.ep_next} />
-                                        <Stat label="Value (season)" value={player.value_season} />
-                                        <Stat label="Bonus Points" value={player.bonus} />
-                                        <Stat label="BPS" value={player.bps} />
+                                        <Stat label="EP This GW" value={player.ep_this} tooltip="Expected Points this gameweek — FPL's model prediction" />
+                                        <Stat label="EP Next GW" value={player.ep_next} tooltip="Expected Points next gameweek — FPL's model prediction" />
+                                        <Stat label="Value (season)" value={player.value_season} tooltip="Points scored per £1m of price rise since the season started" />
+                                        <Stat label="Bonus Points" value={player.bonus} tooltip="Bonus points awarded this season (on top of base points)" />
+                                        <Stat label="BPS" value={player.bps} tooltip="Bonus Points System — raw score used to allocate bonus points each gameweek" />
                                     </div>
                                 </div>
 
@@ -196,9 +196,9 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                         <Stat label="Goals" value={player.goals_scored} />
                                         <Stat label="Assists" value={player.assists} />
-                                        <Stat label="xG" value={parseFloat(player.expected_goals).toFixed(2)} />
-                                        <Stat label="xA" value={parseFloat(player.expected_assists).toFixed(2)} />
-                                        <Stat label="xGI" value={parseFloat(player.expected_goal_involvements).toFixed(2)} />
+                                        <Stat label="xG" value={parseFloat(player.expected_goals).toFixed(2)} tooltip="Expected Goals — the probability of scoring based on shot quality" />
+                                        <Stat label="xA" value={parseFloat(player.expected_assists).toFixed(2)} tooltip="Expected Assists — the probability of assisting based on chance quality" />
+                                        <Stat label="xGI" value={parseFloat(player.expected_goal_involvements).toFixed(2)} tooltip="Expected Goal Involvements — xG + xA combined" />
                                         <Stat label="Penalties Missed" value={player.penalties_missed} />
                                     </div>
                                 </div>
@@ -209,7 +209,7 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                         <Stat label="Clean Sheets" value={player.clean_sheets} />
                                         <Stat label="Goals Conceded" value={player.goals_conceded} />
-                                        <Stat label="xG Conceded" value={parseFloat(player.expected_goals_conceded).toFixed(2)} />
+                                        <Stat label="xG Conceded" value={parseFloat(player.expected_goals_conceded).toFixed(2)} tooltip="Expected Goals Conceded — chance quality allowed by the player's team" />
                                         <Stat label="Saves" value={player.saves} />
                                         <Stat label="Penalties Saved" value={player.penalties_saved} />
                                         <Stat label="Own Goals" value={player.own_goals} />
@@ -230,10 +230,10 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                 <div>
                                     <SectionTitle>ICT Index</SectionTitle>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                        <Stat label="ICT Index" value={player.ict_index} />
-                                        <Stat label="Influence" value={player.influence} />
-                                        <Stat label="Creativity" value={player.creativity} />
-                                        <Stat label="Threat" value={player.threat} />
+                                        <Stat label="ICT Index" value={player.ict_index} tooltip="Influence, Creativity & Threat combined — overall attacking threat score" />
+                                        <Stat label="Influence" value={player.influence} tooltip="Influence — measures impact on a match (key passes, shots, tackles)" />
+                                        <Stat label="Creativity" value={player.creativity} tooltip="Creativity — measures chance creation (crosses, through balls, key passes)" />
+                                        <Stat label="Threat" value={player.threat} tooltip="Threat — measures goal threat (shots, shots on target, shots in box)" />
                                     </div>
                                 </div>
 
@@ -306,9 +306,15 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-800">
-                                                        {[...summary.history].reverse().map((match) => (
+                                                        {(() => {
+                                                            const reversed = [...summary.history].reverse();
+                                                            const roundCounts = reversed.reduce((acc: Record<number, number>, m: any) => { acc[m.round] = (acc[m.round] || 0) + 1; return acc; }, {});
+                                                            return reversed.map((match: any) => (
                                                             <tr key={match.fixture} className="hover:bg-slate-800/30">
-                                                                <td className="p-3 text-gray-300">GW{match.round}</td>
+                                                                <td className="p-3 text-gray-300 whitespace-nowrap">
+                                                                    GW{match.round}
+                                                                    {roundCounts[match.round] > 1 && <span className="ml-1 text-[10px] font-bold bg-purple-500/20 text-purple-300 px-1 py-0.5 rounded" title="Double gameweek">DGW</span>}
+                                                                </td>
                                                                 <td className="p-3 text-gray-400">
                                                                     {match.was_home ? '(H)' : '(A)'} {teams.find(t => t.id === match.opponent_team)?.short_name ?? match.opponent_team}
                                                                 </td>
@@ -323,7 +329,8 @@ const PlayerDetailsModal: React.FC<PlayerDetailsModalProps> = ({ player, team, p
                                                                 <td className="p-3 text-center text-yellow-400">{match.yellow_cards || '-'}</td>
                                                                 <td className="p-3 text-center text-red-400">{match.red_cards || '-'}</td>
                                                             </tr>
-                                                        ))}
+                                                            ));
+                                                        })()}
                                                     </tbody>
                                                 </table>
                                             </div>

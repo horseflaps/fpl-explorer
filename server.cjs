@@ -239,7 +239,7 @@ app.post('/api/auth/login', (req, res) => {
         }
 
         const token = jwt.sign({ id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1 }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1, credits: user.credits ?? 1, manager_dna: user.manager_dna || null } });
+        res.json({ token, user: { id: user.id, displayname: user.displayname, email: user.email, is_verified: !!user.is_verified, membership_tier: user.membership_tier || 1, credits: user.credits ?? 1, manager_dna: user.manager_dna || null, subscription_started_at: user.subscription_started_at || null, autopilot_enabled: !!user.autopilot_enabled, fpl_connected_at: user.fpl_connected_at || null } });
     });
 });
 
@@ -1552,6 +1552,92 @@ app.get('/api/fixtures/tv', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch broadcast data' });
     }
 });
+
+// ── Sofascore goal events ─────────────────────────────────────────────────────
+const ssIncidentCache = new Map(); // sofascoreId → goals[]
+
+const SS_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Referer': 'https://www.sofascore.com/',
+};
+
+const FPL_NICKNAMES = {
+    'wolves': 'wolverhampton', 'spurs': 'tottenham',
+    'man city': 'manchester city', 'man utd': 'manchester united', 'man united': 'manchester united',
+    "nott'm forest": 'nottingham forest', 'nottm forest': 'nottingham forest',
+};
+
+function normSS(name = '') {
+    const lower = name.toLowerCase().replace(/&/g, 'and').replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+    return FPL_NICKNAMES[lower] ?? lower;
+}
+
+async function findSofascoreId(kickoffIso, homeTeam, awayTeam) {
+    const date = kickoffIso.slice(0, 10);
+    const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${date}`;
+    const res = await fetch(url, { headers: SS_HEADERS });
+    if (!res.ok) throw new Error(`Sofascore day fetch failed: ${res.status}`);
+    const json = await res.json();
+    const events = json.events || [];
+
+    const normHome = normSS(homeTeam);
+    const normAway = normSS(awayTeam);
+
+    const match = events.find(e => {
+        const eH = normSS(e.homeTeam?.name ?? '');
+        const eA = normSS(e.awayTeam?.name ?? '');
+        const homeOk = eH.split(' ').some(w => w.length > 3 && normHome.includes(w)) ||
+                       normHome.split(' ').some(w => w.length > 3 && eH.includes(w));
+        const awayOk = eA.split(' ').some(w => w.length > 3 && normAway.includes(w)) ||
+                       normAway.split(' ').some(w => w.length > 3 && eA.includes(w));
+        return homeOk && awayOk;
+    });
+
+    if (!match) {
+        const plEvents = events.filter(e => e.tournament?.name?.includes('Premier League') || e.tournament?.slug?.includes('premier-league'));
+        console.log(`[SS] PL events on ${date}:`, plEvents.map(e => `${e.homeTeam?.name} vs ${e.awayTeam?.name}`));
+    }
+
+    return match?.id ?? null;
+}
+
+app.get('/api/match-events', async (req, res) => {
+    const { kickoff, home, away } = req.query;
+    if (!kickoff || !home || !away) return res.status(400).json({ error: 'kickoff, home and away required' });
+
+    try {
+        const ssId = await findSofascoreId(kickoff, home, away);
+        if (!ssId) {
+            console.log(`[SS] No match found for "${home}" vs "${away}" on ${kickoff.slice(0,10)}`);
+            return res.json({ goals: [] });
+        }
+
+        if (ssIncidentCache.has(ssId)) return res.json({ goals: ssIncidentCache.get(ssId) });
+
+        const iRes = await fetch(`https://api.sofascore.com/api/v1/event/${ssId}/incidents`, { headers: SS_HEADERS });
+        if (!iRes.ok) { console.log(`[SS] Incidents fetch failed: ${iRes.status}`); return res.json({ goals: [] }); }
+        const iJson = await iRes.json();
+
+        const goals = (iJson.incidents || [])
+            .filter(i => i.incidentType === 'goal')
+            .map(i => ({
+                minute: i.time,
+                extraTime: i.addedTime ?? null,
+                scorer: i.player?.shortName ?? i.player?.name ?? '?',
+                team: i.isHome ? 'h' : 'a',
+                type: i.incidentClass === 'ownGoal' ? 'OWN' : i.incidentClass === 'penalty' ? 'PENALTY' : 'REGULAR',
+            }));
+
+        console.log(`[SS] ${home} vs ${away}: ${goals.length} goals found`);
+        ssIncidentCache.set(ssId, goals);
+        res.json({ goals });
+    } catch (e) {
+        console.error('[SS]', e.message);
+        res.status(500).json({ error: 'Failed to fetch match events' });
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Bootstrap-static with cache + stale-on-error fallback
 app.get('/api/bootstrap-static/', async (req, res) => {

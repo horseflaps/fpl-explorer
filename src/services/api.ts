@@ -78,6 +78,18 @@ export const fetchLiveEvent = async (eventId: number): Promise<any> => {
     }
 };
 
+export const fetchMatchGoals = async (kickoff: string, home: string, away: string): Promise<any[]> => {
+    try {
+        const params = new URLSearchParams({ kickoff, home, away });
+        const res = await fetch(`/api/match-events?${params}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.goals ?? [];
+    } catch {
+        return [];
+    }
+};
+
 export const fetchEntryPicks = async (entryId: number, eventId: number): Promise<EntryPicksResponse | null> => {
     try {
         const response = await fetch(`/api/entry/${entryId}/event/${eventId}/picks/`);

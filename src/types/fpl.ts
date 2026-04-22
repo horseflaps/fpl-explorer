@@ -15,6 +15,8 @@ export interface Fixture {
     team_a_score: number | null;
     event: number;
     finished: boolean;
+    finished_provisional: boolean;
+    started: boolean;
     minutes: number;
     provisional_start_time: boolean;
     kickoff_time: string;
