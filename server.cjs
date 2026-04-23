@@ -2898,6 +2898,385 @@ if (process.env.NODE_ENV === 'production') {
 const { initScheduler } = require('./server/scheduler.cjs');
 const { getBiasDigest } = require('./server/predictor.cjs');
 
+// ── Documentation endpoint ────────────────────────────────────────────────────
+// Returns CSV so Google Sheets =IMPORTDATA() can pull live docs into each tab.
+// Usage: =IMPORTDATA("http://yourserver/api/docs?type=schema")
+//        =IMPORTDATA("http://yourserver/api/docs?type=rules")
+//        =IMPORTDATA("http://yourserver/api/docs?type=guardrails")
+
+const FIELD_DESCRIPTIONS = {
+    users: {
+        id: 'Primary key',
+        displayname: "User's display name",
+        email: "User's email address",
+        password_hash: 'Bcrypt-hashed password',
+        created_at: 'Account creation timestamp',
+        fpl_session: 'FPL session cookie (auth)',
+        fpl_entry_id: 'Linked FPL team ID',
+        fpl_refresh_token: 'FPL refresh token',
+        fpl_expires_at: 'FPL session expiry (Unix timestamp)',
+        is_verified: '1 if email verified (boolean)',
+        email_token: 'Token sent for email verification',
+        membership_tier: '1=Scout / 2=Copilot / 3=Autopilot',
+        credits: 'Remaining analysis credits',
+        manager_dna: 'AI-generated manager archetype label',
+        active: '1 if account active (soft-delete flag)',
+        subscription_started_at: 'When current paid subscription began',
+        stripe_subscription_id: 'Active Stripe subscription ID',
+        autopilot_enabled: '1 if Autopilot mode is on (boolean)',
+        autopilot_last_gw: 'Last GW autopilot ran for',
+        fpl_connected_at: 'Timestamp when FPL team was linked',
+        keep_players: 'JSON array of player IDs marked Keep',
+        drop_players: 'JSON array of player IDs marked Drop',
+    },
+    saved_teams: {
+        id: 'Primary key',
+        user_id: 'FK to users.id',
+        name: 'Team name (from FPL)',
+        team_data: 'JSON snapshot of team picks',
+        created_at: 'When team was first saved',
+        last_connected_at: 'When team was last loaded',
+    },
+    analyses: {
+        id: 'Primary key',
+        user_id: 'FK to users.id',
+        team_name: 'FPL team name at time of analysis',
+        entry_id: 'FPL entry ID analysed',
+        gameweek: 'GW the analysis was for',
+        analysis_text: 'Full AI-generated analysis output',
+        created_at: 'When analysis was generated',
+        ai_provider: 'AI model used (claude / gemini)',
+    },
+    cached_lineups: {
+        user_id: 'FK to users.id (composite PK)',
+        entry_id: 'FPL entry ID (composite PK)',
+        picks_data: 'JSON of last known picks',
+        gameweek: 'GW the picks are from',
+        updated_at: 'When cache was last written',
+        chips_data: 'JSON of chip usage history',
+    },
+    articles: {
+        id: 'Primary key',
+        title: 'Article headline',
+        url: 'Unique URL of the article',
+        summary: 'AI-generated summary',
+        source: 'Publisher / RSS feed source',
+        published_at: 'Original publication timestamp',
+    },
+    tiers: {
+        id: 'Primary key (1=Scout 2=Copilot 3=Autopilot)',
+        name: 'Tier display name',
+        description: 'Short description of tier benefits',
+        monthly_credits: 'Credits granted per month',
+        price_gbp: 'Monthly price in GBP',
+        active: '1 if tier is currently offered',
+    },
+    fpl_free_credits: {
+        fpl_entry_id: 'FPL entry ID (PK — one row per manager)',
+        awarded_at: 'When the free credit was granted',
+    },
+    player_predictions: {
+        id: 'Primary key',
+        player_id: 'FPL element ID',
+        player_name: 'Player name at time of prediction',
+        team_id: 'FPL team ID',
+        position: 'FPL position (1=GK 2=DEF 3=MID 4=FWD)',
+        gameweek: 'GW predicted for',
+        predicted_points: 'AI-predicted points',
+        ep_next: 'FPL expected points (ep_next)',
+        form: 'FPL form at prediction time',
+        price: 'Player price in tenths (e.g. 65 = £6.5m)',
+        created_at: 'When prediction was generated',
+    },
+    prediction_accuracy: {
+        id: 'Primary key',
+        player_id: 'FPL element ID',
+        player_name: 'Player name',
+        position: 'FPL position (1-4)',
+        price: 'Player price at time',
+        gameweek: 'GW the result is from',
+        predicted_points: 'What the model predicted',
+        actual_points: 'What the player actually scored',
+        error: 'Signed error (predicted - actual)',
+        abs_error: 'Absolute error',
+        created_at: 'When record was written',
+    },
+    wolf_insights: {
+        key: 'Primary key - insight identifier',
+        value: 'JSON or text content of insight',
+        updated_at: 'Last updated timestamp',
+    },
+    tv_cache: {
+        event_id: 'FPL GW event ID (composite PK)',
+        country_code: 'Country code e.g. GB (composite PK)',
+        result_json: 'Cached TV broadcast data as JSON',
+        fetched_at: 'When cache was populated',
+    },
+};
+
+const WOLF_RULES = [
+    { number: 1, name: 'Budget', rule: 'buy_price of incoming player ≤ selling_price of outgoing player + current bank. Use selling_price (accounts for 50% sell-on rule), NOT cost. Bank updates after each transfer.' },
+    { number: 2, name: 'Position Match', rule: 'Every transfer must be position-for-position. GKP→GKP, DEF→DEF, MID→MID, FWD→FWD. Final squad must be 2 GKP / 5 DEF / 5 MID / 3 FWD.' },
+    { number: 3, name: 'Squad Legality', rule: 'After all transfers: max 3 from same club, correct position counts. Re-check club headcount after each move in a multi-transfer plan.' },
+    { number: 4, name: 'Blank GWs', rule: 'Do NOT buy a player with no fixture (blank GW) unless using Free Hit chip.' },
+    { number: 5, name: 'Hits (4-GW horizon)', rule: 'A hit is only justified if the incoming player projects ≥8 more points than the outgoing player over the next 4 GWs. One-week gain alone almost never justifies a hit. Autopilot: even stricter — conservative plan strongly preferred.' },
+    { number: 6, name: 'Chip Logic', rule: 'Wildcard: ranks >5M — default if available; ranks 1M–5M — 4+ poor players; ranks <1M — 5+ XI players with FDR≥4. Free Hit: only if 5+ starters have a blank. Bench Boost: 3+ bench players with FDR≤3 likely to start. Triple Captain: standout player in DGW or FDR≤2 home game.' },
+    { number: 7, name: 'Feasibility', rule: 'Every recommended buy MUST appear in the TOP BUY TARGETS list. Do not invent players.' },
+    { number: 8, name: 'Consistent Assessment', rule: 'Opinion of a player\'s quality must be stable between analyses. Opposite recommendations on the same player back-to-back is noise, not strategy. State the specific material reason if view has changed.' },
+    { number: 9, name: 'Strategic Arc Continuity', rule: 'Recommendations form a coherent arc. A recently-rebuilt squad is defended, not disowned. Any chip that contradicts a chip played in the previous 2 GWs requires specific NEW material information that was not knowable at the time.' },
+    { number: 10, name: 'Under-Review Grace Period', rule: 'Players transferred IN within the last 2 GWs are PROTECTED. May only be transferred out if Injured, Suspended, or chance_of_playing ≤25%. Dropping for form/ep_next/fixtures/sentiment is DISALLOWED during grace period.' },
+    { number: 11, name: 'Manager Keep Flags', rule: 'If manager has flagged a player as KEEP, they must NEVER be transferred out — including on Wildcard or Free Hit.' },
+    { number: 12, name: 'Manager Drop Flags', rule: 'If manager has flagged a player as DROP, prioritise transferring them out. Lead reasoning with "You\'ve decided to move on from this player".' },
+];
+
+const WOLF_ANALYSIS_STEPS = [
+    {
+        phase: '1. Data Gathered',
+        name: 'Bootstrap (FPL API)',
+        detail: 'All players, teams, prices, form, ep_next, chance_of_playing, injury news, xG/xA stats',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Manager entry data',
+        detail: 'Team name, manager name, overall rank, total points, GW points, bank, free transfers available',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Current squad picks',
+        detail: '15 players with positions, multipliers, last GW points, sell price (with 50% sell-on rule applied)',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Season history',
+        detail: 'All GW scores, chips used (with GW), total hits taken, hit frequency per GW',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Transfer history (last 3 GWs)',
+        detail: 'Recent IN/OUT moves used to detect under-review players and enforce consistency',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Fixture schedule (next 4 GWs)',
+        detail: 'Per-team FDR, home/away, DGW flags (team plays twice), BGW flags (team has no fixture)',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Available chips',
+        detail: 'Wildcard, Free Hit, Bench Boost, Triple Captain — only chips not yet used this season',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Top buy targets',
+        detail: 'Best available players by position (not owned by manager) with live price, form, ep_next, fixture FDR',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Recent news articles',
+        detail: 'Latest FPL news/gossip scraped from RSS feeds, AI-summarised, injected as real-world context',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Manager DNA',
+        detail: 'AI-generated archetype label (e.g. "Differential Hunter", "Template Hugger") used to calibrate tone and strategy',
+    },
+    {
+        phase: '1. Data Gathered',
+        name: 'Bias digest (Autopilot)',
+        detail: 'Wolf\'s own historical prediction accuracy — used to self-calibrate confidence on player recommendations',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Tone calibration',
+        detail: 'Rank <10k: Elite Respect / 10k–100k: Encouraging but firm / 100k–1M: Standard Wolf banter / >1M: Roast mode',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Rank urgency',
+        detail: 'Adjusts chip thresholds and hit aggression by rank. Disaster zone (>5M) → Wildcard is default. Elite (<100k) → protect position, minimal hits.',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Chip cooldown detection',
+        detail: 'If Wildcard was played in the last 2 GWs, Free Hit is effectively banned unless 5+ starters have a confirmed blank',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Recently rebuilt flag',
+        detail: 'If Wildcard played or 4+ transfers made in last 1–2 GWs, squad is assessed on current merit — rank is ignored as a signal of squad quality',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'DGW / BGW schedule',
+        detail: 'Per-GW double and blank gameweek flags injected for the next 4 GWs. Upcoming DGW assets flagged as priority targets.',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Club distribution (3-per-club rule)',
+        detail: 'Summary of how many players are owned per club. Clubs at limit are flagged ⛔ BLOCKED for new buys.',
+    },
+    {
+        phase: '2. Context Built',
+        name: 'Under-review detection',
+        detail: 'Players transferred IN in the last 2 GWs are flagged under_review:true. Protected from reversal (see Rule 10).',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 1 — Evaluate factors privately',
+        detail: 'Fixtures, form, injuries, DGWs/BGWs, budget, chip status, rank objectives, recent transfer history',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 2 — Build an option set',
+        detail: 'Which players to move, which chips to consider, what the captain options are',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 3 — Floor/ceiling/risk framing',
+        detail: 'Each option assessed on worst-case, expected, and best-case points outcomes — not just expected points',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 4 — Align to rank + DNA',
+        detail: 'Choose the plan most suited to the manager\'s current rank trajectory and archetype (e.g. Differential Hunter vs Template player)',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 5 — Contingencies',
+        detail: 'Identify what changes if a key player gets injured before the deadline — pivot targets named explicitly',
+    },
+    {
+        phase: '3. Decision Process',
+        name: 'Step 6 — Write output',
+        detail: 'Only after all internal analysis is complete. No raw chain-of-thought in output — structured sections only.',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '🧠 Reasoning Summary',
+        detail: '4–6 bullets covering the key factors: fixture run, form/injury, DGW/BGW impact, budget, rank pressure, chip rationale',
+    },
+    {
+        phase: '4. Output Sections',
+        name: "🐺 The Wolf's Verdict",
+        detail: '2–3 sentence roast or praise of the team situation, calibrated to manager DNA and rank tone',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '📋 The Plan',
+        detail: 'Exact transfers (OUT→IN with prices), hits taken, bank after, chip, captain + VC, bench order',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '🔍 Player-by-Player Breakdown',
+        detail: 'For each transfer OUT: why dropped. For each transfer IN: Floor / Ceiling / Risk assessment.',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '⚠️ Risks & Contingencies',
+        detail: 'What could go wrong, If/Then pivot branches, alternatives if budget is tighter or a target gets injured',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '📅 Watchlist & Checkpoints (manual only)',
+        detail: '2–4 specific things to monitor before the deadline: injury updates, price rises, decisions to defer',
+    },
+    {
+        phase: '4. Output Sections',
+        name: '✅ Position Verification',
+        detail: 'Wolf self-checks GKP/DEF/MID/FWD counts before writing JSON. Any imbalance must be corrected before output.',
+    },
+    {
+        phase: '4. Output Sections',
+        name: 'JSON Plan Block',
+        detail: 'Machine-parseable plan: transfers[], chip, captain, vice_captain, hits_taken, bank_after, starting_xi[11], bench_order[3]',
+    },
+    {
+        phase: '5. Autopilot Differences',
+        name: 'Conservative bias',
+        detail: 'Autopilot analyses are executed immediately without human review — hit threshold raised, prefer free transfers, safe captain only',
+    },
+    {
+        phase: '5. Autopilot Differences',
+        name: 'No Watchlist section',
+        detail: 'Watchlist & Checkpoints section is omitted — manager is not online to act on it',
+    },
+    {
+        phase: '5. Autopilot Differences',
+        name: 'No DNA captain framing',
+        detail: '"DNA Reasoning" line on captain pick is omitted in Autopilot output',
+    },
+    {
+        phase: '5. Autopilot Differences',
+        name: 'Server-side execution',
+        detail: 'JSON plan is parsed and executed directly against the FPL API using the stored session token',
+    },
+];
+
+const WOLF_GUARDRAILS = [
+    { category: 'Rule references', forbidden: 'Rule 10, Mandatory Rule, Rule 8', instead: 'Just state the expert opinion — no numbering' },
+    { category: 'JSON field names', forbidden: 'under_review, purchased_gw, note, chance_of_playing', instead: 'Natural language equivalents' },
+    { category: 'Internal concepts', forbidden: 'grace period, chip cooldown, assessment window, protected players, under review', instead: 'Analyst framing e.g. "Too soon to reverse this call"' },
+    { category: 'Directive language', forbidden: "the Wolf's directive, my directive, I've been instructed, the rule says, I am not permitted to, Wolf's rules, I cannot recommend X due to", instead: 'Speak with conviction — "I stand by every player I brought in"' },
+    { category: 'Meta-analysis', forbidden: 'Any sentence explaining WHY you are constrained rather than WHAT you think', instead: 'State judgement directly' },
+    { category: 'Held due to directive', forbidden: '"held due to the Wolf\'s directive not to reverse recent decisions"', instead: '"I stand by every player I brought in — it\'s one week, give them time to deliver"' },
+    { category: 'Field name in output', forbidden: '"under_review: true prevents dropping"', instead: '"Too soon to reverse this call — I bought him for a reason"' },
+    { category: 'Chip cooldown reference', forbidden: '"the chip cooldown rule blocks Free Hit"', instead: '"We just rebuilt — playing another chip immediately would be panic, not strategy"' },
+];
+
+function toCsv(rows) {
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0]);
+    const escape = (v) => {
+        const s = String(v ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    return [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\r\n');
+}
+
+app.get('/api/docs', (req, res) => {
+    const type = req.query.type || 'schema';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    if (type === 'rules') {
+        return res.send(toCsv(WOLF_RULES.map(r => ({ '#': r.number, Rule: r.name, Description: r.rule }))));
+    }
+
+    if (type === 'guardrails') {
+        return res.send(toCsv(WOLF_GUARDRAILS.map(g => ({ Category: g.category, Forbidden: g.forbidden, Instead: g.instead }))));
+    }
+
+    if (type === 'analysis') {
+        return res.send(toCsv(WOLF_ANALYSIS_STEPS.map(s => ({ Phase: s.phase, Step: s.name, Detail: s.detail }))));
+    }
+
+    // Default: schema — query live DB
+    const { db } = require('./server/db.cjs');
+    const tables = Object.keys(FIELD_DESCRIPTIONS);
+    const rows = [];
+    let remaining = tables.length;
+
+    tables.forEach(table => {
+        db.all(`PRAGMA table_info(${table})`, (err, cols) => {
+            if (!err && cols) {
+                cols.forEach(col => {
+                    rows.push({
+                        Table: table,
+                        Field: col.name,
+                        Type: col.type || 'TEXT',
+                        PK: col.pk ? 'YES' : '',
+                        Description: (FIELD_DESCRIPTIONS[table] || {})[col.name] || '',
+                    });
+                });
+            }
+            if (--remaining === 0) {
+                rows.sort((a, b) => tables.indexOf(a.Table) - tables.indexOf(b.Table));
+                res.send(toCsv(rows));
+            }
+        });
+    });
+});
+
 // Initialize Scheduler
 initScheduler();
 initAutopilot();
