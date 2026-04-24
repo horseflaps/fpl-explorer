@@ -95,7 +95,7 @@ const PricingView: React.FC = () => {
 
     const membershipTiers = membershipTiersMeta.map(t => ({
         ...t,
-        price: t.id === 1 ? 'Free' : tierPrices[t.id] != null ? `£${tierPrices[t.id].toFixed(2)}` : '...',
+        price: t.id === 1 ? 'Free' : tierPrices[t.id] != null ? `£${tierPrices[t.id].toFixed(2)}` : t.id === 2 ? '£3.99' : '£7.99',
         alt: undefined as string | undefined,
     }));
 

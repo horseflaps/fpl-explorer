@@ -12,9 +12,7 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
         console.error('[DB] Connection error:', err.message);
     } else {
         console.log('[DB] Connected to the users database.');
-        // WAL mode allows concurrent reads alongside writes
-        db.run('PRAGMA journal_mode=WAL');
-        // Wait up to 5s instead of immediately returning SQLITE_BUSY
+        // busy_timeout: wait up to 5s instead of immediately returning SQLITE_BUSY
         db.run('PRAGMA busy_timeout=5000');
         initDb();
     }
@@ -24,7 +22,7 @@ function initDb() {
     db.serialize(() => {
         // Users Table
         db.run(`CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER PRIMARY KEY AUTOINCREMENT,
             displayname TEXT,
             email TEXT UNIQUE,
             password_hash TEXT,
@@ -50,7 +48,7 @@ function initDb() {
             team_data TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_connected_at DATETIME DEFAULT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY(user_id) REFERENCES users(customer_id)
         )`, (err) => {
             if (err) console.error('[DB] Error creating saved_teams table:', err.message);
             else console.log('[DB] Saved teams table ready.');
@@ -68,7 +66,7 @@ function initDb() {
             analysis_text TEXT,
             ai_provider TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY(user_id) REFERENCES users(customer_id)
         )`, (err) => {
             if (err) console.error('[DB] Error creating analyses table:', err.message);
             else {
@@ -85,7 +83,7 @@ function initDb() {
             gameweek INTEGER,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, entry_id),
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY(user_id) REFERENCES users(customer_id)
         )`, (err) => {
             if (err) console.error('[DB] Error creating cached_lineups table:', err.message);
             else console.log('[DB] Cached lineups table ready.');
@@ -125,8 +123,32 @@ function initDb() {
         // Migration: Player flags (keep/drop preferences for Wolf analysis)
         db.run("ALTER TABLE users ADD COLUMN keep_players TEXT DEFAULT '[]'", () => {});
         db.run("ALTER TABLE users ADD COLUMN drop_players TEXT DEFAULT '[]'", () => {});
+
+        // Migration: Admin fields
+        db.run("ALTER TABLE users ADD COLUMN is_arsehole INTEGER DEFAULT 0", () => {});
+        db.run("ALTER TABLE users ADD COLUMN notes TEXT DEFAULT NULL", () => {});
+
+        // Migration: Country / geo data
+        db.run("ALTER TABLE users ADD COLUMN country_selected TEXT DEFAULT NULL", () => {});
+        db.run("ALTER TABLE users ADD COLUMN ip_address TEXT DEFAULT NULL", () => {});
+        db.run("ALTER TABLE users ADD COLUMN ip_country TEXT DEFAULT NULL", () => {});
+        db.run("ALTER TABLE users ADD COLUMN ip_country_match INTEGER DEFAULT NULL", () => {});
+        db.run("ALTER TABLE users ADD COLUMN ip_is_vpn INTEGER DEFAULT NULL", () => {});
         // Existing users are considered verified
         db.run("UPDATE users SET is_verified = 1 WHERE is_verified IS NULL OR is_verified = 0 AND email_token IS NULL", () => {});
+
+        // Migration: rename primary key id → customer_id (for databases that pre-date the users_new migration)
+        db.get("SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='customer_id'", (err, row) => {
+            if (err || row?.count > 0) return;
+            db.run('ALTER TABLE users RENAME COLUMN id TO customer_id', (e) => {
+                if (e) console.error('[DB] Failed to rename id→customer_id:', e.message);
+                else console.log('[DB] Renamed users.id to users.customer_id');
+            });
+        });
+
+        // Migration: password reset tokens
+        db.run("ALTER TABLE users ADD COLUMN password_reset_token TEXT DEFAULT NULL", () => {});
+        db.run("ALTER TABLE users ADD COLUMN password_reset_expires_at INTEGER DEFAULT NULL", () => {});
 
         // Migration: active flag — recreate table to drop email UNIQUE constraint,
         // replace with partial unique index (unique email only when active = 1)
@@ -136,7 +158,7 @@ function initDb() {
             db.serialize(() => {
                 db.run('BEGIN TRANSACTION');
                 db.run(`CREATE TABLE users_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     displayname TEXT,
                     email TEXT,
                     password_hash TEXT,
@@ -216,6 +238,7 @@ function initDb() {
                 [3, 'Auto-Pilot','Maximum credits, priority analysis, and early access to new features.',    100,  7.99],
             ];
             const stmt = db.prepare('INSERT OR IGNORE INTO tiers (id, name, description, monthly_credits, price_gbp) VALUES (?, ?, ?, ?, ?)');
+            stmt.on('error', (err) => console.error('[DB] Tiers seed error:', err.message));
             seed.forEach(row => stmt.run(row));
             stmt.finalize();
             // Always keep prices in sync with the canonical seed values
@@ -282,6 +305,24 @@ function initDb() {
         )`, (err) => {
             if (err) console.error('[DB] Error creating articles table:', err.message);
             else console.log('[DB] Articles table ready.');
+        });
+
+        // Orders Table — records every credit purchase and subscription payment
+        db.run(`CREATE TABLE IF NOT EXISTS orders (
+            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            order_type TEXT NOT NULL,
+            credits_ordered INTEGER DEFAULT 0,
+            plan TEXT DEFAULT NULL,
+            amount_pence INTEGER DEFAULT NULL,
+            stripe_session_id TEXT,
+            stripe_subscription_id TEXT,
+            status TEXT DEFAULT 'completed',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(customer_id) REFERENCES users(customer_id)
+        )`, (err) => {
+            if (err) console.error('[DB] Error creating orders table:', err.message);
+            else console.log('[DB] Orders table ready.');
         });
     });
 }
