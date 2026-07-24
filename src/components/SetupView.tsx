@@ -59,7 +59,7 @@ const SetupView: React.FC = () => {
                         </div>
                         <h3 className="text-xl font-bold text-white mb-3">3. Done!</h3>
                         <p className="text-gray-400 text-sm leading-relaxed mb-6">
-                            Return here and the Wolf will automatically detect your team ID and session tokens.
+                            Return here and the Wolf will automatifsion tokens.
                         </p>
                         <button
                             onClick={() => window.location.href = '/'}
